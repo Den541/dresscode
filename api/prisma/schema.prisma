@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String           @id @default(cuid())
+  email        String           @unique
+  passwordHash String
+  preferences  UserPreferences?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}
+
+model UserPreferences {
+  id              String @id @default(cuid())
+  userId          String @unique
+  style           Style  @default(CASUAL)
+  coldSensitivity Int    @default(0)
+  favoriteCats    Json?
+  user            User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum Style {
+  CASUAL
+  FORMAL
+  SPORTY
+}
