@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, TextInput } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../config';
 
 type Props = { navigation: any };
@@ -15,11 +16,27 @@ type WeatherDto = {
   icon: string;
 };
 
+const LAST_CITY_KEY = 'dresscode:lastCity';
+
 export default function HomeScreen({ navigation }: Props) {
   const [city, setCity] = useState('Lviv');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [weather, setWeather] = useState<WeatherDto | null>(null);
+
+  // Load last city on app start
+  useEffect(() => {
+    (async () => {
+      try {
+        const savedCity = await AsyncStorage.getItem(LAST_CITY_KEY);
+        if (savedCity && savedCity.trim()) {
+          setCity(savedCity);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
 
   const getWeather = async () => {
     const cleanCity = city.trim();
@@ -44,6 +61,9 @@ export default function HomeScreen({ navigation }: Props) {
       }
 
       setWeather(data);
+
+      // Cache last city (MVP)
+      await AsyncStorage.setItem(LAST_CITY_KEY, cleanCity);
     } catch (e: any) {
       setWeather(null);
       setError(e?.message ?? 'Network error');
@@ -52,6 +72,15 @@ export default function HomeScreen({ navigation }: Props) {
     }
   };
 
+  const goToRecommendation = () => {
+    if (!weather) {
+      setError('Get weather first');
+      return;
+    }
+    navigation.navigate('Recommendation');
+  };
+
+  // Dev: ping API
   const [pingStatus, setPingStatus] = useState<string>('Idle');
   const pingApi = async () => {
     try {
@@ -77,16 +106,30 @@ export default function HomeScreen({ navigation }: Props) {
           placeholder="Enter city..."
           placeholderTextColor="#777"
           style={styles.input}
+          autoCapitalize="words"
         />
 
-        <Pressable style={styles.primaryBtn} onPress={getWeather} disabled={loading}>
+        <Pressable
+          style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+          onPress={getWeather}
+          disabled={loading}
+        >
           <Text style={styles.primaryBtnText}>
             {loading ? 'Loading...' : 'Get Weather'}
           </Text>
         </Pressable>
 
+        {/* Error state */}
         {!!error && <Text style={styles.errorText}>{error}</Text>}
 
+        {/* Empty state */}
+        {!loading && !error && !weather && (
+          <Text style={styles.hintText}>
+            Enter a city and tap “Get Weather”.
+          </Text>
+        )}
+
+        {/* Weather state */}
         {weather && (
           <View style={styles.weatherBox}>
             <Text style={styles.weatherTitle}>{weather.city}</Text>
@@ -102,10 +145,7 @@ export default function HomeScreen({ navigation }: Props) {
         )}
       </View>
 
-      <Pressable
-        style={styles.secondaryBtn}
-        onPress={() => navigation.navigate('Recommendation')}
-      >
+      <Pressable style={styles.secondaryBtn} onPress={goToRecommendation}>
         <Text style={styles.secondaryBtnText}>Go to Recommendation</Text>
       </Pressable>
 
@@ -153,6 +193,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
+  primaryBtnDisabled: {
+    opacity: 0.7,
+  },
   primaryBtnText: { color: '#000', fontWeight: '700' },
 
   secondaryBtn: {
@@ -165,6 +208,7 @@ const styles = StyleSheet.create({
   secondaryBtnText: { color: '#fff', fontWeight: '600' },
 
   errorText: { color: '#ff6b6b' },
+  hintText: { color: '#777' },
 
   weatherBox: {
     marginTop: 6,
