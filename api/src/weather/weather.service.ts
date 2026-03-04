@@ -11,13 +11,44 @@ export type WeatherDto = {
   icon: string;
 };
 
+type OpenWeatherResponse = {
+  name?: string;
+  main?: {
+    temp?: number;
+    feels_like?: number;
+    humidity?: number;
+  };
+  wind?: {
+    speed?: number;
+  };
+  rain?: {
+    '1h'?: number;
+  };
+  snow?: {
+    '1h'?: number;
+  };
+  weather?: Array<{
+    description?: string;
+    icon?: string;
+  }>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toOpenWeatherResponse(payload: unknown): OpenWeatherResponse {
+  if (!isRecord(payload)) {
+    throw new Error('Invalid weather response');
+  }
+
+  return payload as OpenWeatherResponse;
+}
+
 @Injectable()
 export class WeatherService {
   async getWeatherByCity(city: string): Promise<WeatherDto> {
     const apiKey = process.env.OPENWEATHER_API_KEY;
-
-     console.log('OW key loaded:', Boolean(process.env.OPENWEATHER_API_KEY));
-     console.log('OW key length:', apiKey?.length);
 
     if (!apiKey) throw new Error('OPENWEATHER_API_KEY is not set');
 
@@ -34,7 +65,8 @@ export class WeatherService {
       throw new Error(`OpenWeather error: ${res.status}`);
     }
 
-    const data: any = await res.json();
+    const json: unknown = await res.json();
+    const data = toOpenWeatherResponse(json);
 
     const precipitationMm =
       (data?.rain?.['1h'] ?? 0) + (data?.snow?.['1h'] ?? 0);

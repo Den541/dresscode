@@ -3,7 +3,7 @@ import { WeatherService } from './weather.service';
 
 @Controller('weather')
 export class WeatherController {
-  constructor(private readonly weatherService: WeatherService) {}
+  constructor(private readonly weatherService: WeatherService) { }
 
   @Get()
   async getWeather(@Query('city') city?: string) {
@@ -13,9 +13,11 @@ export class WeatherController {
 
     try {
       return await this.weatherService.getWeatherByCity(city.trim());
-    } catch (e: any) {
+    } catch (error: unknown) {
       // Тут можна зробити окремо 404, але для Week 1 достатньо 400 з текстом
-      throw new BadRequestException(e?.message ?? 'Failed to fetch weather');
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch weather';
+      throw new BadRequestException(message);
     }
   }
 }
