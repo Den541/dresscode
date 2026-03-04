@@ -7,7 +7,7 @@ import RecommendationScreen from './src/screens/RecommendationScreen';
 
 export type RootStackParamList = {
   Home: undefined;
-  Recommendation: undefined;
+  Recommendation: { weather: any };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();

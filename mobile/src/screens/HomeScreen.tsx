@@ -72,13 +72,13 @@ export default function HomeScreen({ navigation }: Props) {
     }
   };
 
-  const goToRecommendation = () => {
+    const goToRecommendation = () => {
     if (!weather) {
-      setError('Get weather first');
-      return;
+        setError('Спочатку отримай погоду');
+        return;
     }
-    navigation.navigate('Recommendation');
-  };
+    navigation.navigate('Recommendation', { weather });
+    };
 
   // Dev: ping API
   const [pingStatus, setPingStatus] = useState<string>('Idle');
