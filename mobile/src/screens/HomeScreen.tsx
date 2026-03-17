@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, TextInput } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../config';
+import { useAuth } from '../context/AuthContext';
 
 type Props = { navigation: any };
 
@@ -19,6 +20,7 @@ type WeatherDto = {
 const LAST_CITY_KEY = 'dresscode:lastCity';
 
 export default function HomeScreen({ navigation }: Props) {
+  const { user, accessToken, logout } = useAuth();
   const [city, setCity] = useState('Lviv');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
@@ -50,7 +52,10 @@ export default function HomeScreen({ navigation }: Props) {
       setLoading(true);
 
       const res = await fetch(
-        `${API_BASE_URL}/weather?city=${encodeURIComponent(cleanCity)}`
+        `${API_BASE_URL}/weather?city=${encodeURIComponent(cleanCity)}`,
+        {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        }
       );
       const data = await res.json();
 
@@ -72,13 +77,13 @@ export default function HomeScreen({ navigation }: Props) {
     }
   };
 
-    const goToRecommendation = () => {
+  const goToRecommendation = () => {
     if (!weather) {
-        setError('Спочатку отримай погоду');
-        return;
+      setError('Спочатку отримай погоду');
+      return;
     }
     navigation.navigate('Recommendation', { weather });
-    };
+  };
 
   // Dev: ping API
   const [pingStatus, setPingStatus] = useState<string>('Idle');
@@ -95,8 +100,20 @@ export default function HomeScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>DressCode</Text>
-      <Text style={styles.subtitle}>Home</Text>
+      <View style={styles.topBar}>
+        <View>
+          <Text style={styles.title}>DressCode</Text>
+          <Text style={styles.subtitle}>Home</Text>
+        </View>
+        <View style={styles.topActions}>
+          <Pressable onPress={() => navigation.navigate('Profile')}>
+            <Text style={styles.profileBtn}>{user?.name || user?.email || 'Profile'}</Text>
+          </Pressable>
+          <Pressable onPress={logout}>
+            <Text style={styles.logoutBtn}>Logout</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>City</Text>
@@ -107,6 +124,11 @@ export default function HomeScreen({ navigation }: Props) {
           placeholderTextColor="#777"
           style={styles.input}
           autoCapitalize="words"
+          autoComplete="off"
+          textContentType="none"
+          importantForAutofill="no"
+          autoCorrect={false}
+          spellCheck={false}
         />
 
         <Pressable
@@ -165,8 +187,41 @@ export default function HomeScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, gap: 12, backgroundColor: '#0b0b0b' },
+
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+
+  topActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+
   title: { fontSize: 28, fontWeight: '700', color: '#fff' },
   subtitle: { fontSize: 16, color: '#aaa' },
+
+  profileBtn: {
+    backgroundColor: '#fff',
+    color: '#000',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    fontWeight: '600',
+    fontSize: 12,
+  },
+
+  logoutBtn: {
+    borderWidth: 1,
+    borderColor: '#ff6b6b',
+    color: '#ff6b6b',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    fontWeight: '600',
+    fontSize: 12,
+  },
 
   card: {
     borderWidth: 1,
