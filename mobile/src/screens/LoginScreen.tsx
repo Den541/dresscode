@@ -59,6 +59,12 @@ export default function LoginScreen({ navigation }: Props) {
                     style={styles.input}
                     autoCapitalize="none"
                     keyboardType="email-address"
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    keyboardAppearance="dark"
                     editable={!loading}
                 />
 
@@ -75,6 +81,7 @@ export default function LoginScreen({ navigation }: Props) {
                     importantForAutofill="no"
                     autoCorrect={false}
                     spellCheck={false}
+                    keyboardAppearance="dark"
                     editable={!loading}
                 />
 
