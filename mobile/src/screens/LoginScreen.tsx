@@ -59,9 +59,11 @@ export default function LoginScreen({ navigation }: Props) {
                     style={styles.input}
                     autoCapitalize="none"
                     keyboardType="email-address"
-                    autoComplete="off"
-                    textContentType="none"
-                    importantForAutofill="no"
+                    returnKeyType="next"
+                    onSubmitEditing={() => {}}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    importantForAutofill="yes"
                     autoCorrect={false}
                     spellCheck={false}
                     keyboardAppearance="dark"
@@ -76,9 +78,11 @@ export default function LoginScreen({ navigation }: Props) {
                     placeholderTextColor="#666"
                     style={styles.input}
                     secureTextEntry
-                    autoComplete="off"
-                    textContentType="none"
-                    importantForAutofill="no"
+                    returnKeyType="go"
+                    onSubmitEditing={handleLogin}
+                    autoComplete="password"
+                    textContentType="password"
+                    importantForAutofill="yes"
                     autoCorrect={false}
                     spellCheck={false}
                     keyboardAppearance="dark"

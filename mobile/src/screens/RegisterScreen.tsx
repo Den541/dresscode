@@ -93,9 +93,11 @@ export default function RegisterScreen({ navigation }: Props) {
                         style={styles.input}
                         autoCapitalize="none"
                         keyboardType="email-address"
-                        autoComplete="off"
-                        textContentType="none"
-                        importantForAutofill="no"
+                        returnKeyType="next"
+                        onSubmitEditing={() => {}}
+                        autoComplete="email"
+                        textContentType="emailAddress"
+                        importantForAutofill="yes"
                         autoCorrect={false}
                         spellCheck={false}
                         keyboardAppearance="dark"
@@ -110,9 +112,11 @@ export default function RegisterScreen({ navigation }: Props) {
                         placeholderTextColor="#666"
                         style={styles.input}
                         secureTextEntry
-                        autoComplete="off"
-                        textContentType="none"
-                        importantForAutofill="no"
+                        returnKeyType="next"
+                        onSubmitEditing={() => {}}
+                        autoComplete="password-new"
+                        textContentType="newPassword"
+                        importantForAutofill="yes"
                         autoCorrect={false}
                         spellCheck={false}
                         keyboardAppearance="dark"
@@ -127,9 +131,11 @@ export default function RegisterScreen({ navigation }: Props) {
                         placeholderTextColor="#666"
                         style={styles.input}
                         secureTextEntry
-                        autoComplete="off"
-                        textContentType="none"
-                        importantForAutofill="no"
+                        returnKeyType="done"
+                        onSubmitEditing={() => {}}
+                        autoComplete="password-new"
+                        textContentType="newPassword"
+                        importantForAutofill="yes"
                         autoCorrect={false}
                         spellCheck={false}
                         keyboardAppearance="dark"
