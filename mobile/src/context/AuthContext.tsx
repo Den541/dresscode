@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../config';
-import { storage, StoredUser, AuthTokens } from '../utils/storage';
+import { storage } from '../utils/storage';
 
 export type AuthUser = {
     id: string;
@@ -16,6 +16,7 @@ type AuthContextType = {
     error: string | null;
     login: (email: string, password: string) => Promise<void>;
     register: (email: string, password: string, name?: string) => Promise<void>;
+    refreshAccessToken: () => Promise<string | null>;
     logout: () => Promise<void>;
     restore: () => Promise<void>;
 };
@@ -28,6 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [refreshToken, setRefreshToken] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
 
     // Restore session on app start
     useEffect(() => {
@@ -58,6 +60,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } finally {
             setLoading(false);
         }
+    };
+
+    const clearSession = async () => {
+        setUser(null);
+        setAccessToken(null);
+        setRefreshToken(null);
+        setError(null);
+        await storage.clearAll();
     };
 
     const login = async (email: string, password: string) => {
@@ -160,16 +170,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
             }
 
-            setUser(null);
-            setAccessToken(null);
-            setRefreshToken(null);
-            setError(null);
-            await storage.clearAll();
+            await clearSession();
         } catch (err) {
             console.error('Logout error:', err);
         } finally {
             setLoading(false);
         }
+    };
+
+    const refreshAccessToken = async (): Promise<string | null> => {
+        if (refreshPromiseRef.current) {
+            return refreshPromiseRef.current;
+        }
+
+        const activeRefreshToken = refreshToken;
+        if (!activeRefreshToken) {
+            return null;
+        }
+
+        refreshPromiseRef.current = (async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken: activeRefreshToken }),
+                });
+
+                if (!response.ok) {
+                    const isInvalidRefresh = response.status === 401 || response.status === 403;
+                    if (isInvalidRefresh) {
+                        await clearSession();
+                    }
+                    return null;
+                }
+
+                const data = await response.json();
+                const nextAccessToken = data?.accessToken as string | undefined;
+                const nextRefreshToken =
+                    (data?.refreshToken as string | undefined) ?? activeRefreshToken;
+
+                if (!nextAccessToken) {
+                    return null;
+                }
+
+                setAccessToken(nextAccessToken);
+                setRefreshToken(nextRefreshToken);
+
+                await storage.saveTokens({
+                    accessToken: nextAccessToken,
+                    refreshToken: nextRefreshToken,
+                });
+
+                return nextAccessToken;
+            } catch (err) {
+                console.error('Refresh token flow failed:', err);
+                return null;
+            } finally {
+                refreshPromiseRef.current = null;
+            }
+        })();
+
+        return refreshPromiseRef.current;
     };
 
     const value: AuthContextType = {
@@ -180,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         error,
         login,
         register,
+        refreshAccessToken,
         logout,
         restore,
     };

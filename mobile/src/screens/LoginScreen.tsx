@@ -60,7 +60,7 @@ export default function LoginScreen({ navigation }: Props) {
                     autoCapitalize="none"
                     keyboardType="email-address"
                     returnKeyType="next"
-                    onSubmitEditing={() => {}}
+                    onSubmitEditing={() => { }}
                     autoComplete="email"
                     textContentType="emailAddress"
                     importantForAutofill="yes"

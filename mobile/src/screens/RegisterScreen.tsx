@@ -94,7 +94,7 @@ export default function RegisterScreen({ navigation }: Props) {
                         autoCapitalize="none"
                         keyboardType="email-address"
                         returnKeyType="next"
-                        onSubmitEditing={() => {}}
+                        onSubmitEditing={() => { }}
                         autoComplete="email"
                         textContentType="emailAddress"
                         importantForAutofill="yes"
@@ -113,7 +113,7 @@ export default function RegisterScreen({ navigation }: Props) {
                         style={styles.input}
                         secureTextEntry
                         returnKeyType="next"
-                        onSubmitEditing={() => {}}
+                        onSubmitEditing={() => { }}
                         autoComplete="password-new"
                         textContentType="newPassword"
                         importantForAutofill="yes"
@@ -132,7 +132,7 @@ export default function RegisterScreen({ navigation }: Props) {
                         style={styles.input}
                         secureTextEntry
                         returnKeyType="done"
-                        onSubmitEditing={() => {}}
+                        onSubmitEditing={() => { }}
                         autoComplete="password-new"
                         textContentType="newPassword"
                         importantForAutofill="yes"

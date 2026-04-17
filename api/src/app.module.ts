@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { WeatherModule } from './weather/weather.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { WardrobeModule } from './wardrobe/wardrobe.module';
 import { validateEnv } from './config/env.validation';
 
 @Module({
@@ -16,6 +17,7 @@ import { validateEnv } from './config/env.validation';
     WeatherModule,
     AuthModule,
     UsersModule,
+    WardrobeModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

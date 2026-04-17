@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, TextInput } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../context/AuthContext';
+import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 
 type Props = { navigation: any };
 
@@ -51,11 +52,12 @@ export default function HomeScreen({ navigation }: Props) {
       setError('');
       setLoading(true);
 
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `${API_BASE_URL}/weather?city=${encodeURIComponent(cleanCity)}`,
         {
           headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-        }
+        },
+        10000,
       );
       const data = await res.json();
 
@@ -90,7 +92,7 @@ export default function HomeScreen({ navigation }: Props) {
   const pingApi = async () => {
     try {
       setPingStatus('Loading...');
-      const res = await fetch(`${API_BASE_URL}/health`);
+      const res = await fetchWithTimeout(`${API_BASE_URL}/health`, {}, 5000);
       const data = await res.json();
       setPingStatus(`OK: ${JSON.stringify(data)}`);
     } catch (e: any) {
@@ -169,6 +171,10 @@ export default function HomeScreen({ navigation }: Props) {
 
       <Pressable style={styles.secondaryBtn} onPress={goToRecommendation}>
         <Text style={styles.secondaryBtnText}>Go to Recommendation</Text>
+      </Pressable>
+
+      <Pressable style={styles.secondaryBtn} onPress={() => navigation.navigate('Wardrobe')}>
+        <Text style={styles.secondaryBtnText}>Go to Wardrobe</Text>
       </Pressable>
 
       {/* Dev block */}

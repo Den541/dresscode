@@ -3,12 +3,16 @@ import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator } from '
 import { getRecommendationUA, UserPreferences } from '../logic/recommendations';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
+import { fetchWardrobeItems } from '../utils/wardrobe';
+import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 
 export default function RecommendationScreen({ route }: any) {
   const weather = route?.params?.weather;
-  const { accessToken } = useAuth();
+  const { accessToken, refreshAccessToken } = useAuth();
 
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [wardrobeCount, setWardrobeCount] = useState(0);
+  const [wardrobeCategories, setWardrobeCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [regenKey, setRegenKey] = useState(0);
@@ -28,11 +32,26 @@ export default function RecommendationScreen({ route }: any) {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/users/me`, {
+      let tokenToUse = accessToken;
+      let response = await fetchWithTimeout(`${API_BASE_URL}/users/me`, {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${tokenToUse}`,
         },
-      });
+      }, 10000);
+
+      if (response.status === 401) {
+        const nextAccessToken = await refreshAccessToken();
+        if (!nextAccessToken) {
+          throw new Error('Session expired. Please login again.');
+        }
+
+        tokenToUse = nextAccessToken;
+        response = await fetchWithTimeout(`${API_BASE_URL}/users/me`, {
+          headers: {
+            Authorization: `Bearer ${tokenToUse}`,
+          },
+        }, 10000);
+      }
 
       if (!response.ok) {
         throw new Error('Failed to load preferences');
@@ -40,19 +59,37 @@ export default function RecommendationScreen({ route }: any) {
 
       const data = await response.json();
       setPreferences(data.preferences);
+
+      const wardrobeItems = await fetchWardrobeItems(tokenToUse);
+      setWardrobeCount(wardrobeItems.length);
+      setWardrobeCategories(Array.from(new Set(wardrobeItems.map((item) => item.category))));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load preferences';
       setError(msg);
       // Continue with default preferences
       setPreferences({ style: 'CASUAL', coldSensitivity: 0 });
+      setWardrobeCount(0);
+      setWardrobeCategories([]);
     } finally {
       setLoading(false);
     }
   };
 
   const rec = useMemo(() => {
-    return getRecommendationUA(weather, preferences || undefined);
-  }, [weather, preferences, regenKey]);
+    const baseRecommendation = getRecommendationUA(weather, preferences || undefined);
+    const categoryText =
+      wardrobeCategories.length > 0
+        ? `Категорії: ${wardrobeCategories.join(', ')}`
+        : 'Поки без категорій';
+
+    return {
+      ...baseRecommendation,
+      reasons: [
+        ...baseRecommendation.reasons,
+        `Гардероб враховується у рекомендації. ${categoryText}.`,
+      ],
+    };
+  }, [weather, preferences, wardrobeCategories, regenKey]);
 
   if (loading) {
     return (
@@ -73,6 +110,8 @@ export default function RecommendationScreen({ route }: any) {
           Враховано: стиль "{preferences.style}", чутливість до холоду {preferences.coldSensitivity}
         </Text>
       )}
+
+      <Text style={styles.infoText}>Ваш гардероб завантажено: {wardrobeCount} речей</Text>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Що вдягнути</Text>

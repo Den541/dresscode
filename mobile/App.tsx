@@ -9,6 +9,8 @@ import RecommendationScreen from './src/screens/RecommendationScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import WardrobeScreen from './src/screens/WardrobeScreen';
+import AddWardrobeItemScreen from './src/screens/AddWardrobeItemScreen';
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -19,6 +21,8 @@ export type AppStackParamList = {
   Home: undefined;
   Recommendation: { weather: any };
   Profile: undefined;
+  Wardrobe: undefined;
+  AddWardrobeItem: undefined;
 };
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -52,6 +56,8 @@ function AppStackNavigator() {
       <AppStack.Screen name="Home" component={HomeScreen} />
       <AppStack.Screen name="Recommendation" component={RecommendationScreen} />
       <AppStack.Screen name="Profile" component={ProfileScreen} />
+      <AppStack.Screen name="Wardrobe" component={WardrobeScreen} />
+      <AppStack.Screen name="AddWardrobeItem" component={AddWardrobeItemScreen} options={{ title: 'Add Item' }} />
     </AppStack.Navigator>
   );
 }
