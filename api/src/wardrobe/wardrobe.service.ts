@@ -3,17 +3,26 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateWardrobeDto } from './dto/create-wardrobe.dto';
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { AiService, AiItemAnalysis } from '../ai/ai.service';
+
+const WARDROBE_CATEGORIES = ['OUTERWEAR', 'TOPS', 'BOTTOMS', 'SHOES', 'ACCESSORIES'] as const;
+type WardrobeCategory = (typeof WARDROBE_CATEGORIES)[number];
 
 @Injectable()
 export class WardrobeService {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private readonly aiService: AiService,
+    ) { }
 
     async createItem(
         userId: string,
         createWardrobeDto: CreateWardrobeDto,
         imageFilename: string,
     ) {
+        const db = this.prisma as any;
         const imageUrl = `/uploads/${imageFilename}`;
+        const imagePath = join(process.cwd(), 'uploads', imageFilename);
         const parsedTags = createWardrobeDto.tags
             ? createWardrobeDto.tags
                 .split(',')
@@ -21,19 +30,61 @@ export class WardrobeService {
                 .filter(Boolean)
             : [];
 
-        return this.prisma.wardrobeItem.create({
-            data: {
-                userId,
+        const existingItems = await db.wardrobeItem.findMany({
+            where: { userId },
+            select: { name: true },
+        });
+        const existingNames = existingItems.map((item) => item.name).filter(Boolean);
+
+        const fallbackAnalysis: AiItemAnalysis = {
+            suggestedName: createWardrobeDto.name?.trim() || 'Річ',
+            suggestedCategory: this.resolveCategory(createWardrobeDto.category),
+            summary: `${createWardrobeDto.name?.trim() || 'Річ'} — item for everyday outfits.`,
+            styleTags: [this.resolveCategory(createWardrobeDto.category).toLowerCase()],
+            seasonTags: ['all-season'],
+            warmthLevel: this.resolveCategory(createWardrobeDto.category) === 'OUTERWEAR' ? 8 : 4,
+            colorTags: [],
+            recommendationNotes: ['Added from manual wardrobe upload.'],
+        };
+
+        let aiAnalysis = fallbackAnalysis;
+
+        try {
+            aiAnalysis = await this.aiService.analyzeWardrobeItem({
                 name: createWardrobeDto.name,
                 category: createWardrobeDto.category,
                 tags: parsedTags,
+                imagePath,
+                existingNames,
+            });
+        } catch (error) {
+            console.warn('AI item analysis failed, using fallback analysis:', error);
+        }
+
+        const resolvedCategory = this.resolveCategory(
+            createWardrobeDto.category ?? aiAnalysis.suggestedCategory,
+        );
+        const resolvedName = this.makeUniqueName(
+            createWardrobeDto.name?.trim() || aiAnalysis.suggestedName,
+            existingNames,
+        );
+
+        return db.wardrobeItem.create({
+            data: {
+                userId,
+                name: resolvedName,
+                category: resolvedCategory,
+                tags: parsedTags,
                 imageUrl,
+                aiAnalysis,
+                aiAnalyzedAt: new Date(),
             },
         });
     }
 
     async getUserItems(userId: string) {
-        return this.prisma.wardrobeItem.findMany({
+        const db = this.prisma as any;
+        return db.wardrobeItem.findMany({
             where: { userId },
             select: {
                 id: true,
@@ -41,6 +92,8 @@ export class WardrobeService {
                 category: true,
                 tags: true,
                 imageUrl: true,
+                aiAnalysis: true,
+                aiAnalyzedAt: true,
                 createdAt: true,
             },
             orderBy: { createdAt: 'desc' },
@@ -48,7 +101,8 @@ export class WardrobeService {
     }
 
     async deleteItem(userId: string, itemId: string) {
-        const item = await this.prisma.wardrobeItem.findFirst({
+        const db = this.prisma as any;
+        const item = await db.wardrobeItem.findFirst({
             where: { id: itemId, userId },
         });
 
@@ -72,8 +126,31 @@ export class WardrobeService {
         }
 
         // Delete DB record
-        return this.prisma.wardrobeItem.delete({
+        return db.wardrobeItem.delete({
             where: { id: itemId },
         });
+    }
+
+    private resolveCategory(category?: string): WardrobeCategory {
+        const normalized = (category ?? 'TOPS').toUpperCase();
+        return WARDROBE_CATEGORIES.includes(normalized as WardrobeCategory)
+            ? (normalized as WardrobeCategory)
+            : 'TOPS';
+    }
+
+    private makeUniqueName(baseName: string, existingNames: string[]): string {
+        const normalizedExisting = new Set(existingNames.map((name) => name.toLowerCase().trim()));
+        let candidate = baseName.trim() || 'Річ';
+
+        if (!normalizedExisting.has(candidate.toLowerCase())) {
+            return candidate;
+        }
+
+        let suffix = 2;
+        while (normalizedExisting.has(`${candidate} ${suffix}`.toLowerCase())) {
+            suffix += 1;
+        }
+
+        return `${candidate} ${suffix}`;
     }
 }

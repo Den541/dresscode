@@ -13,6 +13,8 @@ JWT_REFRESH_SECRET=your_refresh_secret
 JWT_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=7d
 OPENWEATHER_API_KEY=your_openweather_api_key
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-4o-mini
 ```
 
 ## Run

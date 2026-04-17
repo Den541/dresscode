@@ -6,6 +6,8 @@
 - Create `api/.env` and set:
 	- `DATABASE_URL=postgresql://dresscode:dresscode@localhost:5432/dresscode?schema=public`
 	- `OPENWEATHER_API_KEY=your_openweather_api_key`
+	- `OPENAI_API_KEY=your_openai_api_key`
+	- `OPENAI_MODEL=gpt-4o-mini`
 - Create `mobile/.env` and set:
 	- `EXPO_PUBLIC_API_BASE_URL=http://<YOUR_MAC_IP>:3000`
 

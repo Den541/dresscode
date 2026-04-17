@@ -11,17 +11,12 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
-import { WardrobeCategory } from '../utils/wardrobe';
 
 type Props = { navigation: any };
-
-const CATEGORIES: WardrobeCategory[] = ['OUTERWEAR', 'TOPS', 'BOTTOMS', 'SHOES', 'ACCESSORIES'];
 
 export default function AddWardrobeItemScreen({ navigation }: Props) {
     const { accessToken } = useAuth();
     const [name, setName] = useState('');
-    const [category, setCategory] = useState<WardrobeCategory>('TOPS');
-    const [tags, setTags] = useState('');
     const [imageUri, setImageUri] = useState('');
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -71,10 +66,6 @@ export default function AddWardrobeItemScreen({ navigation }: Props) {
                 setError('Not authenticated');
                 return;
             }
-            if (!name.trim()) {
-                setError('Введіть назву речі');
-                return;
-            }
             if (!imageUri) {
                 setError('Додайте фото');
                 return;
@@ -87,10 +78,8 @@ export default function AddWardrobeItemScreen({ navigation }: Props) {
             const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
 
             const formData = new FormData();
-            formData.append('name', name.trim());
-            formData.append('category', category);
-            if (tags.trim()) {
-                formData.append('tags', tags.trim());
+            if (name.trim()) {
+                formData.append('name', name.trim());
             }
             formData.append('image', {
                 uri: imageUri,
@@ -122,7 +111,7 @@ export default function AddWardrobeItemScreen({ navigation }: Props) {
 
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Add Item</Text>
+            <Text style={styles.title}>Додати річ</Text>
 
             <View style={styles.card}>
                 <Text style={styles.label}>Назва</Text>
@@ -135,43 +124,16 @@ export default function AddWardrobeItemScreen({ navigation }: Props) {
                     editable={!saving}
                 />
 
-                <Text style={styles.label}>Категорія</Text>
-                <View style={styles.categoryWrap}>
-                    {CATEGORIES.map((item) => (
-                        <Pressable
-                            key={item}
-                            style={[styles.categoryBtn, category === item && styles.categoryBtnActive]}
-                            onPress={() => setCategory(item)}
-                            disabled={saving}
-                        >
-                            <Text
-                                style={[
-                                    styles.categoryBtnText,
-                                    category === item && styles.categoryBtnTextActive,
-                                ]}
-                            >
-                                {item}
-                            </Text>
-                        </Pressable>
-                    ))}
-                </View>
-
-                <Text style={styles.label}>Теги (опційно)</Text>
-                <TextInput
-                    value={tags}
-                    onChangeText={setTags}
-                    placeholder="casual, summer, cotton"
-                    placeholderTextColor="#777"
-                    style={styles.input}
-                    editable={!saving}
-                />
+                <Text style={styles.helperText}>
+                    Назву можна лишити порожньою — ChatGPT сам придумає її і визначить характеристики з фото.
+                </Text>
 
                 <View style={styles.photoActions}>
                     <Pressable style={styles.secondaryBtn} onPress={takePhoto} disabled={saving}>
-                        <Text style={styles.secondaryBtnText}>Camera</Text>
+                        <Text style={styles.secondaryBtnText}>Камера</Text>
                     </Pressable>
                     <Pressable style={styles.secondaryBtn} onPress={pickFromGallery} disabled={saving}>
-                        <Text style={styles.secondaryBtnText}>Gallery</Text>
+                        <Text style={styles.secondaryBtnText}>Галерея</Text>
                     </Pressable>
                 </View>
 
@@ -184,7 +146,7 @@ export default function AddWardrobeItemScreen({ navigation }: Props) {
                     onPress={handleSave}
                     disabled={saving}
                 >
-                    {saving ? <ActivityIndicator color="#000" /> : <Text style={styles.saveBtnText}>Save</Text>}
+                    {saving ? <ActivityIndicator color="#000" /> : <Text style={styles.saveBtnText}>Зберегти</Text>}
                 </Pressable>
             </View>
         </View>
@@ -203,6 +165,7 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     label: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    helperText: { color: '#9bd1ff', fontSize: 12, lineHeight: 18 },
     input: {
         borderWidth: 1,
         borderColor: '#2a2a2a',
@@ -211,20 +174,6 @@ const styles = StyleSheet.create({
         color: '#fff',
         backgroundColor: '#0f0f0f',
     },
-    categoryWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    categoryBtn: {
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 10,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-    },
-    categoryBtnActive: {
-        backgroundColor: '#fff',
-        borderColor: '#fff',
-    },
-    categoryBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-    categoryBtnTextActive: { color: '#000' },
     photoActions: { flexDirection: 'row', gap: 8 },
     secondaryBtn: {
         flex: 1,

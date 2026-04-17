@@ -8,6 +8,7 @@ import { WeatherModule } from './weather/weather.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { WardrobeModule } from './wardrobe/wardrobe.module';
+import { AiModule } from './ai/ai.module';
 import { validateEnv } from './config/env.validation';
 
 @Module({
@@ -18,6 +19,7 @@ import { validateEnv } from './config/env.validation';
     AuthModule,
     UsersModule,
     WardrobeModule,
+    AiModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

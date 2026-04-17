@@ -8,6 +8,7 @@ import {
     Pressable,
     ActivityIndicator,
 } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
 
@@ -134,6 +135,22 @@ export default function ProfileScreen({ navigation }: Props) {
         );
     };
 
+    const getColdSensitivityMeaning = (value: number) => {
+        if (value >= 4) {
+            return 'Дуже чутливий до холоду: потрібні тепліші речі навіть у помірну погоду.';
+        }
+        if (value >= 2) {
+            return 'Чутливий до холоду: краще мати додатковий верхній шар.';
+        }
+        if (value <= -4) {
+            return 'Добре переносиш холод: можеш вдягатися легше за середню рекомендацію.';
+        }
+        if (value <= -2) {
+            return 'Менш чутливий до холоду: зазвичай комфортно в легшому образі.';
+        }
+        return 'Нейтральна чутливість: стандартний баланс між теплом і легкістю.';
+    };
+
     if (loading) {
         return (
             <View style={styles.centerContainer}>
@@ -191,30 +208,28 @@ export default function ProfileScreen({ navigation }: Props) {
                 </View>
 
                 <Text style={styles.sectionTitle}>Cold Sensitivity</Text>
-                <Text style={styles.label}>
-                    Level: {coldSensitivity} (← more tolerant, less tolerant →)
-                </Text>
-                <View style={styles.sliderContainer}>
-                    {[-5, -3, -1, 0, 1, 3, 5].map((val) => (
-                        <Pressable
-                            key={val}
-                            style={[
-                                styles.sliderBtn,
-                                coldSensitivity === val && styles.sliderBtnActive,
-                            ]}
-                            onPress={() => setColdSensitivity(val)}
-                        >
-                            <Text
-                                style={[
-                                    styles.sliderBtnText,
-                                    coldSensitivity === val && styles.sliderBtnTextActive,
-                                ]}
-                            >
-                                {val}
-                            </Text>
-                        </Pressable>
+                <Text style={styles.label}>Рівень: {coldSensitivity}</Text>
+                <View style={styles.sliderWrapper}>
+                    <Text style={styles.sliderEdge}>Менш чутливий</Text>
+                    <Text style={styles.sliderEdge}>Більш чутливий</Text>
+                </View>
+                <Slider
+                    minimumValue={-5}
+                    maximumValue={5}
+                    step={1}
+                    value={coldSensitivity}
+                    onValueChange={setColdSensitivity}
+                    minimumTrackTintColor="#fff"
+                    maximumTrackTintColor="#2a2a2a"
+                    thumbTintColor="#fff"
+                    style={styles.slider}
+                />
+                <View style={styles.tickRow}>
+                    {[-5, -3, -1, 0, 1, 3, 5].map((tick) => (
+                        <Text key={tick} style={styles.tickText}>{tick}</Text>
                     ))}
                 </View>
+                <Text style={styles.sensitivityHint}>{getColdSensitivityMeaning(coldSensitivity)}</Text>
 
                 <Text style={styles.sectionTitle}>Favorite Categories</Text>
                 <View style={styles.categoriesContainer}>
@@ -357,35 +372,38 @@ const styles = StyleSheet.create({
         color: '#000',
     },
 
-    sliderContainer: {
+    sliderWrapper: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        gap: 8,
+        marginTop: 4,
     },
 
-    sliderBtn: {
-        flex: 1,
-        paddingVertical: 10,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        alignItems: 'center',
-        backgroundColor: '#0f0f0f',
-    },
-
-    sliderBtnActive: {
-        backgroundColor: '#fff',
-        borderColor: '#fff',
-    },
-
-    sliderBtnText: {
-        color: '#aaa',
-        fontWeight: '600',
+    sliderEdge: {
+        color: '#888',
         fontSize: 12,
     },
 
-    sliderBtnTextActive: {
-        color: '#000',
+    slider: {
+        width: '100%',
+        height: 36,
+    },
+
+    tickRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: -2,
+    },
+
+    tickText: {
+        color: '#777',
+        fontSize: 11,
+    },
+
+    sensitivityHint: {
+        color: '#9bd1ff',
+        fontSize: 12,
+        lineHeight: 18,
+        marginTop: 6,
     },
 
     categoriesContainer: {

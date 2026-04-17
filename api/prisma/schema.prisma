@@ -50,6 +50,8 @@ model WardrobeItem {
   category  WardrobeCategory
   tags      Json?
   imageUrl  String
+  aiAnalysis Json?
+  aiAnalyzedAt DateTime?
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
