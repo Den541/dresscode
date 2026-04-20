@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { WardrobeModule } from './wardrobe/wardrobe.module';
 import { AiModule } from './ai/ai.module';
+import { RecommendationsModule } from './recommendations/recommendations.module';
 import { validateEnv } from './config/env.validation';
 
 @Module({
@@ -20,6 +21,7 @@ import { validateEnv } from './config/env.validation';
     UsersModule,
     WardrobeModule,
     AiModule,
+    RecommendationsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

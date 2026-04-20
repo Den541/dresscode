@@ -11,6 +11,8 @@ import RegisterScreen from './src/screens/RegisterScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import WardrobeScreen from './src/screens/WardrobeScreen';
 import AddWardrobeItemScreen from './src/screens/AddWardrobeItemScreen';
+import RecommendationHistoryScreen from './src/screens/RecommendationHistoryScreen';
+import RecommendationHistoryDetailsScreen from './src/screens/RecommendationHistoryDetailsScreen';
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -20,6 +22,8 @@ export type AuthStackParamList = {
 export type AppStackParamList = {
   Home: undefined;
   Recommendation: { weather: any };
+  RecommendationHistory: undefined;
+  RecommendationHistoryDetails: { id: string };
   Profile: undefined;
   Wardrobe: undefined;
   AddWardrobeItem: undefined;
@@ -55,6 +59,16 @@ function AppStackNavigator() {
     >
       <AppStack.Screen name="Home" component={HomeScreen} />
       <AppStack.Screen name="Recommendation" component={RecommendationScreen} />
+      <AppStack.Screen
+        name="RecommendationHistory"
+        component={RecommendationHistoryScreen}
+        options={{ title: 'History' }}
+      />
+      <AppStack.Screen
+        name="RecommendationHistoryDetails"
+        component={RecommendationHistoryDetailsScreen}
+        options={{ title: 'History Details' }}
+      />
       <AppStack.Screen name="Profile" component={ProfileScreen} />
       <AppStack.Screen name="Wardrobe" component={WardrobeScreen} />
       <AppStack.Screen name="AddWardrobeItem" component={AddWardrobeItemScreen} options={{ title: 'Add Item' }} />

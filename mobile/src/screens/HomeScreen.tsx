@@ -1,5 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, TextInput } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  ScrollView,
+  ActivityIndicator,
+  StatusBar,
+  SafeAreaView,
+  Platform,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../context/AuthContext';
@@ -20,60 +31,95 @@ type WeatherDto = {
 
 const LAST_CITY_KEY = 'dresscode:lastCity';
 
+function getWeatherEmoji(description: string): string {
+  const d = description.toLowerCase();
+  if (d.includes('thunder')) return '⛈️';
+  if (d.includes('snow') || d.includes('blizzard')) return '❄️';
+  if (d.includes('rain') || d.includes('drizzle') || d.includes('shower')) return '🌧️';
+  if (d.includes('fog') || d.includes('mist') || d.includes('haze')) return '🌫️';
+  if (d.includes('overcast')) return '☁️';
+  if (d.includes('cloud')) return '⛅';
+  if (d.includes('clear') || d.includes('sunny')) return '☀️';
+  return '🌤️';
+}
+
+function getInitials(name?: string | null, email?: string): string {
+  if (name?.trim()) {
+    const parts = name.trim().split(' ').filter(Boolean);
+    return parts.length >= 2
+      ? (parts[0][0] + parts[1][0]).toUpperCase()
+      : parts[0][0].toUpperCase();
+  }
+  return (email?.[0] ?? '?').toUpperCase();
+}
+
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 6) return 'Доброї ночі';
+  if (h < 12) return 'Доброго ранку';
+  if (h < 18) return 'Доброго дня';
+  return 'Доброго вечора';
+}
+
+function WeatherStat({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.statItem}>
+      <Text style={styles.statIcon}>{icon}</Text>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
 export default function HomeScreen({ navigation }: Props) {
-  const { user, accessToken, logout } = useAuth();
+  const { user, accessToken } = useAuth();
   const [city, setCity] = useState('Lviv');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>('');
+  const [error, setError] = useState('');
   const [weather, setWeather] = useState<WeatherDto | null>(null);
 
-  // Load last city on app start
   useEffect(() => {
     (async () => {
       try {
         const savedCity = await AsyncStorage.getItem(LAST_CITY_KEY);
-        if (savedCity && savedCity.trim()) {
-          setCity(savedCity);
-        }
-      } catch {
-        // ignore
-      }
+        if (savedCity?.trim()) setCity(savedCity);
+      } catch {}
     })();
   }, []);
 
   const getWeather = async () => {
     const cleanCity = city.trim();
     if (!cleanCity) {
-      setError('Enter a city name');
+      setError('Введи назву міста');
       return;
     }
-
     try {
       setError('');
       setLoading(true);
-
       const res = await fetchWithTimeout(
         `${API_BASE_URL}/weather?city=${encodeURIComponent(cleanCity)}`,
-        {
-          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-        },
+        { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} },
         10000,
       );
       const data = await res.json();
-
       if (!res.ok) {
         setWeather(null);
-        setError(data?.message ?? `Weather error: ${res.status}`);
+        setError(data?.message ?? `Помилка: ${res.status}`);
         return;
       }
-
       setWeather(data);
-
-      // Cache last city (MVP)
       await AsyncStorage.setItem(LAST_CITY_KEY, cleanCity);
     } catch (e: any) {
       setWeather(null);
-      setError(e?.message ?? 'Network error');
+      setError(e?.message ?? 'Помилка мережі');
     } finally {
       setLoading(false);
     }
@@ -87,209 +133,498 @@ export default function HomeScreen({ navigation }: Props) {
     navigation.navigate('Recommendation', { weather });
   };
 
-  // Dev: ping API
-  const [pingStatus, setPingStatus] = useState<string>('Idle');
-  const pingApi = async () => {
-    try {
-      setPingStatus('Loading...');
-      const res = await fetchWithTimeout(`${API_BASE_URL}/health`, {}, 5000);
-      const data = await res.json();
-      setPingStatus(`OK: ${JSON.stringify(data)}`);
-    } catch (e: any) {
-      setPingStatus(`ERROR: ${e?.message ?? String(e)}`);
-    }
-  };
+  const displayName =
+    user?.name?.trim() || user?.email?.split('@')[0] || 'Користувач';
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topBar}>
-        <View>
-          <Text style={styles.title}>DressCode</Text>
-          <Text style={styles.subtitle}>Home</Text>
-        </View>
-        <View style={styles.topActions}>
-          <Pressable onPress={() => navigation.navigate('Profile')}>
-            <Text style={styles.profileBtn}>{user?.name || user?.email || 'Profile'}</Text>
-          </Pressable>
-          <Pressable onPress={logout}>
-            <Text style={styles.logoutBtn}>Logout</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>City</Text>
-        <TextInput
-          value={city}
-          onChangeText={setCity}
-          placeholder="Enter city..."
-          placeholderTextColor="#777"
-          style={styles.input}
-          autoCapitalize="words"
-          autoComplete="off"
-          textContentType="none"
-          importantForAutofill="no"
-          autoCorrect={false}
-          spellCheck={false}
-        />
-
-        <Pressable
-          style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
-          onPress={getWeather}
-          disabled={loading}
-        >
-          <Text style={styles.primaryBtnText}>
-            {loading ? 'Loading...' : 'Get Weather'}
-          </Text>
-        </Pressable>
-
-        {/* Error state */}
-        {!!error && <Text style={styles.errorText}>{error}</Text>}
-
-        {/* Empty state */}
-        {!loading && !error && !weather && (
-          <Text style={styles.hintText}>
-            Enter a city and tap “Get Weather”.
-          </Text>
-        )}
-
-        {/* Weather state */}
-        {weather && (
-          <View style={styles.weatherBox}>
-            <Text style={styles.weatherTitle}>{weather.city}</Text>
-            <Text style={styles.weatherText}>Temp: {weather.temperature}°C</Text>
-            <Text style={styles.weatherText}>Feels like: {weather.feelsLike}°C</Text>
-            <Text style={styles.weatherText}>Humidity: {weather.humidity}%</Text>
-            <Text style={styles.weatherText}>Wind: {weather.windSpeed} m/s</Text>
-            <Text style={styles.weatherText}>
-              Precipitation: {weather.precipitationMm} mm
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor="#0B0B0B" />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── HEADER ── */}
+        <View style={styles.header}>
+          <View style={styles.greetingBlock}>
+            <Text style={styles.greetingText}>{getGreeting()},</Text>
+            <Text style={styles.userName}>{displayName} 👋</Text>
+          </View>
+          <Pressable
+            style={({ pressed }) => [styles.avatar, pressed && { opacity: 0.75 }]}
+            onPress={() => navigation.navigate('Profile')}
+          >
+            <Text style={styles.avatarText}>
+              {getInitials(user?.name, user?.email)}
             </Text>
-            <Text style={styles.weatherText}>Desc: {weather.description}</Text>
+          </Pressable>
+        </View>
+
+        {/* ── CITY SEARCH ── */}
+        <View style={styles.searchRow}>
+          <View style={styles.searchWrap}>
+            <Text style={styles.searchPinIcon}>📍</Text>
+            <TextInput
+              value={city}
+              onChangeText={t => {
+                setCity(t);
+                setError('');
+              }}
+              placeholder="Введи місто..."
+              placeholderTextColor="#444"
+              style={styles.searchInput}
+              autoCapitalize="words"
+              autoCorrect={false}
+              spellCheck={false}
+              autoComplete="off"
+              textContentType="none"
+              importantForAutofill="no"
+              returnKeyType="search"
+              onSubmitEditing={getWeather}
+            />
+          </View>
+          <Pressable
+            style={({ pressed }) => [
+              styles.searchBtn,
+              loading && styles.searchBtnDisabled,
+              pressed && { opacity: 0.8 },
+            ]}
+            onPress={getWeather}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color="#000" />
+            ) : (
+              <Text style={styles.searchBtnText}>Знайти</Text>
+            )}
+          </Pressable>
+        </View>
+
+        {/* ── ERROR BANNER ── */}
+        {!!error && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorEmoji}>⚠️</Text>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
-      </View>
 
-      <Pressable style={styles.secondaryBtn} onPress={goToRecommendation}>
-        <Text style={styles.secondaryBtnText}>Go to Recommendation</Text>
-      </Pressable>
+        {/* ── WEATHER CARD ── */}
+        {weather ? (
+          <View style={styles.weatherCard}>
+            <View style={styles.weatherTop}>
+              <View style={styles.weatherMeta}>
+                <Text style={styles.weatherCity}>{weather.city}</Text>
+                <Text style={styles.weatherDesc}>
+                  {weather.description.charAt(0).toUpperCase() +
+                    weather.description.slice(1)}
+                </Text>
+              </View>
+              <Text style={styles.weatherEmoji}>
+                {getWeatherEmoji(weather.description)}
+              </Text>
+            </View>
 
-      <Pressable style={styles.secondaryBtn} onPress={() => navigation.navigate('Wardrobe')}>
-        <Text style={styles.secondaryBtnText}>Go to Wardrobe</Text>
-      </Pressable>
+            <Text style={styles.weatherTemp}>
+              {Math.round(weather.temperature)}°
+            </Text>
 
-      {/* Dev block */}
-      <View style={styles.devCard}>
-        <Text style={styles.devTitle}>Dev: API connectivity</Text>
+            <View style={styles.weatherDivider} />
 
-        <Pressable style={styles.secondaryBtn} onPress={pingApi}>
-          <Text style={styles.secondaryBtnText}>Ping API (/health)</Text>
+            <View style={styles.weatherStats}>
+              <WeatherStat
+                icon="🌡️"
+                label="Відчувається"
+                value={`${Math.round(weather.feelsLike)}°C`}
+              />
+              <View style={styles.statDivider} />
+              <WeatherStat
+                icon="💧"
+                label="Вологість"
+                value={`${weather.humidity}%`}
+              />
+              <View style={styles.statDivider} />
+              <WeatherStat
+                icon="💨"
+                label="Вітер"
+                value={`${weather.windSpeed} м/с`}
+              />
+              {weather.precipitationMm > 0 && (
+                <>
+                  <View style={styles.statDivider} />
+                  <WeatherStat
+                    icon="🌧️"
+                    label="Опади"
+                    value={`${weather.precipitationMm} мм`}
+                  />
+                </>
+              )}
+            </View>
+          </View>
+        ) : (
+          !loading &&
+          !error && (
+            <View style={styles.emptyWeather}>
+              <Text style={styles.emptyEmoji}>🌤️</Text>
+              <Text style={styles.emptyTitle}>Яка погода сьогодні?</Text>
+              <Text style={styles.emptyDesc}>
+                Введи своє місто, щоб дізнатись погоду та отримати рекомендацію образу від AI
+              </Text>
+            </View>
+          )
+        )}
+
+        {/* ── PRIMARY ACTION ── */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.recommendBtn,
+            !weather && styles.recommendBtnDisabled,
+            pressed && weather && { opacity: 0.85 },
+          ]}
+          onPress={goToRecommendation}
+        >
+          <View style={styles.recommendBtnInner}>
+            <Text style={styles.recommendBtnIcon}>✨</Text>
+            <View>
+              <Text style={styles.recommendBtnTitle}>Підібрати образ</Text>
+              <Text style={styles.recommendBtnSub}>
+                {weather
+                  ? `На основі погоди у ${weather.city}`
+                  : 'Спочатку отримай погоду'}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.recommendArrow}>→</Text>
         </Pressable>
 
-        <Text style={styles.status}>{pingStatus}</Text>
-      </View>
-    </View>
+        {/* ── SECTION TITLE ── */}
+        <Text style={styles.sectionTitle}>Розділи</Text>
+
+        {/* ── NAV CARDS ── */}
+        <View style={styles.navRow}>
+          <Pressable
+            style={({ pressed }) => [styles.navCard, pressed && styles.navCardPressed]}
+            onPress={() => navigation.navigate('Wardrobe')}
+          >
+            <Text style={styles.navCardEmoji}>👗</Text>
+            <Text style={styles.navCardLabel}>Гардероб</Text>
+            <Text style={styles.navCardDesc}>Мої речі</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.navCard, pressed && styles.navCardPressed]}
+            onPress={() => navigation.navigate('RecommendationHistory')}
+          >
+            <Text style={styles.navCardEmoji}>🗂️</Text>
+            <Text style={styles.navCardLabel}>Історія</Text>
+            <Text style={styles.navCardDesc}>Минулі образи</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, gap: 12, backgroundColor: '#0b0b0b' },
+  safe: {
+    flex: 1,
+    backgroundColor: '#0B0B0B',
+  },
+  scroll: {
+    flex: 1,
+  },
+  container: {
+    padding: 20,
+    paddingTop: Platform.OS === 'android' ? 20 : 12,
+    paddingBottom: 48,
+    gap: 16,
+  },
 
-  topBar: {
+  // ── HEADER ──
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  greetingBlock: {
+    gap: 2,
+  },
+  greetingText: {
+    fontSize: 14,
+    color: '#555',
+    fontWeight: '400',
+  },
+  userName: {
+    fontSize: 22,
+    color: '#fff',
+    fontWeight: '700',
+    letterSpacing: -0.4,
+  },
+  avatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#1C1C1C',
+    borderWidth: 1.5,
+    borderColor: '#2E2E2E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+
+  // ── SEARCH ──
+  searchRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+  },
+  searchWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#141414',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#252525',
+    paddingHorizontal: 14,
+    height: 52,
+    gap: 10,
+  },
+  searchPinIcon: {
+    fontSize: 16,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '400',
+    paddingVertical: 0,
+  },
+  searchBtn: {
+    height: 52,
+    paddingHorizontal: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 85,
+  },
+  searchBtnDisabled: {
+    opacity: 0.5,
+  },
+  searchBtnText: {
+    color: '#000',
+    fontWeight: '700',
+    fontSize: 14,
+    letterSpacing: -0.2,
+  },
+
+  // ── ERROR ──
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6B6B14',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FF6B6B33',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  errorEmoji: {
+    fontSize: 14,
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+  },
+
+  // ── WEATHER CARD ──
+  weatherCard: {
+    backgroundColor: '#111111',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#1E1E1E',
+    padding: 22,
+    gap: 0,
+  },
+  weatherTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-
-  topActions: {
-    flexDirection: 'row',
-    gap: 8,
+  weatherMeta: {
+    gap: 3,
   },
-
-  title: { fontSize: 28, fontWeight: '700', color: '#fff' },
-  subtitle: { fontSize: 16, color: '#aaa' },
-
-  profileBtn: {
-    backgroundColor: '#fff',
-    color: '#000',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    fontWeight: '600',
-    fontSize: 12,
-  },
-
-  logoutBtn: {
-    borderWidth: 1,
-    borderColor: '#ff6b6b',
-    color: '#ff6b6b',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    fontWeight: '600',
-    fontSize: 12,
-  },
-
-  card: {
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    borderRadius: 14,
-    padding: 14,
-    backgroundColor: '#121212',
-    gap: 10,
-  },
-  cardTitle: { color: '#fff', fontSize: 16, fontWeight: '600' },
-
-  input: {
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    borderRadius: 12,
-    padding: 12,
+  weatherCity: {
+    fontSize: 17,
     color: '#fff',
-    backgroundColor: '#0f0f0f',
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
-
-  primaryBtn: {
-    backgroundColor: '#fff',
-    paddingVertical: 12,
-    borderRadius: 12,
+  weatherDesc: {
+    fontSize: 13,
+    color: '#666',
+  },
+  weatherEmoji: {
+    fontSize: 52,
+    lineHeight: 58,
+  },
+  weatherTemp: {
+    fontSize: 80,
+    color: '#fff',
+    fontWeight: '700',
+    letterSpacing: -3,
+    lineHeight: 90,
+    marginTop: 4,
+  },
+  weatherDivider: {
+    height: 1,
+    backgroundColor: '#1E1E1E',
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  weatherStats: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  primaryBtnDisabled: {
-    opacity: 0.7,
-  },
-  primaryBtnText: { color: '#000', fontWeight: '700' },
-
-  secondaryBtn: {
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    paddingVertical: 12,
-    borderRadius: 12,
+  statItem: {
+    flex: 1,
     alignItems: 'center',
-  },
-  secondaryBtnText: { color: '#fff', fontWeight: '600' },
-
-  errorText: { color: '#ff6b6b' },
-  hintText: { color: '#777' },
-
-  weatherBox: {
-    marginTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#2a2a2a',
-    paddingTop: 10,
     gap: 4,
   },
-  weatherTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  weatherText: { color: '#bbb' },
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#1E1E1E',
+  },
+  statIcon: {
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  statValue: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+  },
+  statLabel: {
+    color: '#444',
+    fontSize: 10,
+    textAlign: 'center',
+  },
 
-  devCard: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    borderRadius: 14,
-    padding: 14,
-    backgroundColor: '#121212',
+  // ── EMPTY STATE ──
+  emptyWeather: {
+    alignItems: 'center',
+    paddingVertical: 32,
     gap: 10,
   },
-  devTitle: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  status: { color: '#fff', fontFamily: 'Menlo' },
+  emptyEmoji: {
+    fontSize: 56,
+    lineHeight: 64,
+  },
+  emptyTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: -0.3,
+  },
+  emptyDesc: {
+    color: '#555',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 20,
+  },
+
+  // ── PRIMARY CTA ──
+  recommendBtn: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  recommendBtnDisabled: {
+    backgroundColor: '#141414',
+    borderWidth: 1,
+    borderColor: '#222',
+  },
+  recommendBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  recommendBtnIcon: {
+    fontSize: 26,
+    lineHeight: 32,
+  },
+  recommendBtnTitle: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  recommendBtnSub: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  recommendArrow: {
+    color: '#000',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+
+  // ── SECTION TITLE ──
+  sectionTitle: {
+    color: '#3A3A3A',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+
+  // ── NAV CARDS ──
+  navRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  navCard: {
+    flex: 1,
+    backgroundColor: '#111111',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#1E1E1E',
+    padding: 18,
+    gap: 4,
+  },
+  navCardPressed: {
+    opacity: 0.65,
+  },
+  navCardEmoji: {
+    fontSize: 28,
+    lineHeight: 36,
+    marginBottom: 6,
+  },
+  navCardLabel: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  navCardDesc: {
+    color: '#555',
+    fontSize: 12,
+  },
 });
