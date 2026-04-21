@@ -7,10 +7,24 @@ import {
     TextInput,
     Pressable,
     ActivityIndicator,
+    SafeAreaView,
+    StatusBar,
+    Platform,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
+
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const GOLD   = '#C9961A';
+const BG     = '#0D0D0D';
+const CARD   = '#141414';
+const BORDER = '#252525';
+const WHITE  = '#FFFFFF';
+const GRAY   = '#888888';
+const MUTED  = '#444444';
+const RED    = '#FF6B6B';
+const GREEN  = '#51CF66';
 
 type Props = { navigation: any };
 
@@ -27,52 +41,80 @@ type UserProfile = {
     preferences: UserPreferences;
 };
 
+const STYLE_OPTIONS = [
+    { value: 'CASUAL' as const,  label: 'Кежуал', icon: '👕' },
+    { value: 'FORMAL' as const,  label: 'Формальний', icon: '👔' },
+    { value: 'SPORTY' as const,  label: 'Спортивний', icon: '⚡' },
+];
+
+const CAT_OPTIONS = [
+    { value: 'Casual',     label: 'Кежуал',    icon: '🧢' },
+    { value: 'Business',   label: 'Бізнес',    icon: '💼' },
+    { value: 'Sportwear',  label: 'Спорт',     icon: '🏃' },
+    { value: 'Streetwear', label: 'Стріт',     icon: '🛹' },
+];
+
+function getInitials(name?: string | null, email?: string): string {
+    if (name?.trim()) {
+        const parts = name.trim().split(' ').filter(Boolean);
+        return parts.length >= 2
+            ? (parts[0][0] + parts[1][0]).toUpperCase()
+            : parts[0][0].toUpperCase();
+    }
+    return (email?.[0] ?? '?').toUpperCase();
+}
+
+function getColdLabel(value: number): string {
+    if (value >= 4)  return 'Дуже чутливий до холоду';
+    if (value >= 2)  return 'Чутливий до холоду';
+    if (value <= -4) return 'Добре переносиш холод';
+    if (value <= -2) return 'Менш чутливий до холоду';
+    return 'Нейтральна чутливість';
+}
+
+function getColdHint(value: number): string {
+    if (value >= 4)  return 'AI порекомендує тепліші речі навіть у помірну погоду';
+    if (value >= 2)  return 'AI додасть верхній шар навіть при прохолоді';
+    if (value <= -4) return 'AI пропонуватиме легші варіанти для будь-якої погоди';
+    if (value <= -2) return 'AI враховуватиме, що ти комфортніше одягаєшся';
+    return 'AI підбирає стандартний баланс між теплом і легкістю';
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function ProfileScreen({ navigation }: Props) {
     const { user, accessToken, logout } = useAuth();
-    const [profile, setProfile] = useState<UserProfile | null>(null);
-    const [name, setName] = useState('');
-    const [style, setStyle] = useState<'CASUAL' | 'FORMAL' | 'SPORTY'>('CASUAL');
-    const [coldSensitivity, setColdSensitivity] = useState(0);
-    const [favoriteCatsLocal, setFavoriteCatsLocal] = useState<string[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState<string>('');
-    const [success, setSuccess] = useState<string>('');
 
-    // Load profile
-    useEffect(() => {
-        loadProfile();
-    }, []);
+    const [profile, setProfile]                   = useState<UserProfile | null>(null);
+    const [name, setName]                         = useState('');
+    const [style, setStyle]                       = useState<'CASUAL' | 'FORMAL' | 'SPORTY'>('CASUAL');
+    const [coldSensitivity, setColdSensitivity]   = useState(0);
+    const [favoriteCats, setFavoriteCats]         = useState<string[]>([]);
+    const [loading, setLoading]                   = useState(true);
+    const [saving, setSaving]                     = useState(false);
+    const [error, setError]                       = useState('');
+    const [success, setSuccess]                   = useState('');
+
+    useEffect(() => { loadProfile(); }, []);
 
     const loadProfile = async () => {
         try {
             setLoading(true);
             setError('');
+            if (!accessToken) { setError('Не авторизовано'); return; }
 
-            if (!accessToken) {
-                setError('Not authenticated');
-                return;
-            }
-
-            const response = await fetch(`${API_BASE_URL}/users/me`, {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                },
+            const res = await fetch(`${API_BASE_URL}/users/me`, {
+                headers: { Authorization: `Bearer ${accessToken}` },
             });
+            if (!res.ok) throw new Error('Не вдалось завантажити профіль');
 
-            if (!response.ok) {
-                throw new Error('Failed to load profile');
-            }
-
-            const data = await response.json();
+            const data = await res.json();
             setProfile(data);
             setName(data.name || '');
             setStyle(data.preferences.style);
             setColdSensitivity(data.preferences.coldSensitivity);
-            setFavoriteCatsLocal(data.preferences.favoriteCats || []);
+            setFavoriteCats(data.preferences.favoriteCats || []);
         } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Failed to load profile';
-            setError(msg);
+            setError(err instanceof Error ? err.message : 'Помилка завантаження');
         } finally {
             setLoading(false);
         }
@@ -83,13 +125,9 @@ export default function ProfileScreen({ navigation }: Props) {
             setSaving(true);
             setSuccess('');
             setError('');
+            if (!accessToken) { setError('Не авторизовано'); return; }
 
-            if (!accessToken) {
-                setError('Not authenticated');
-                return;
-            }
-
-            const response = await fetch(`${API_BASE_URL}/users/me`, {
+            const res = await fetch(`${API_BASE_URL}/users/me`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
@@ -99,383 +137,542 @@ export default function ProfileScreen({ navigation }: Props) {
                     name: name || undefined,
                     style,
                     coldSensitivity,
-                    favoriteCats: favoriteCatsLocal,
+                    favoriteCats,
                 }),
             });
 
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data?.message || 'Failed to save profile');
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data?.message || 'Не вдалось зберегти');
             }
 
-            const updatedProfile = await response.json();
-            setProfile(updatedProfile);
-            setSuccess('Profile saved successfully!');
-            setTimeout(() => setSuccess(''), 2000);
+            const updated = await res.json();
+            setProfile(updated);
+            setSuccess('Профіль збережено');
+            setTimeout(() => setSuccess(''), 2500);
         } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Failed to save profile';
-            setError(msg);
+            setError(err instanceof Error ? err.message : 'Помилка збереження');
         } finally {
             setSaving(false);
         }
     };
 
-    const handleLogout = async () => {
-        try {
-            await logout();
-            // Navigation will be handled by auth context
-        } catch (err) {
-            setError('Failed to logout');
-        }
-    };
-
-    const toggleCat = (cat: string) => {
-        setFavoriteCatsLocal((prev) =>
-            prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+    const toggleCat = (cat: string) =>
+        setFavoriteCats(prev =>
+            prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
         );
-    };
 
-    const getColdSensitivityMeaning = (value: number) => {
-        if (value >= 4) {
-            return 'Дуже чутливий до холоду: потрібні тепліші речі навіть у помірну погоду.';
-        }
-        if (value >= 2) {
-            return 'Чутливий до холоду: краще мати додатковий верхній шар.';
-        }
-        if (value <= -4) {
-            return 'Добре переносиш холод: можеш вдягатися легше за середню рекомендацію.';
-        }
-        if (value <= -2) {
-            return 'Менш чутливий до холоду: зазвичай комфортно в легшому образі.';
-        }
-        return 'Нейтральна чутливість: стандартний баланс між теплом і легкістю.';
-    };
-
+    // ── Loading ──
     if (loading) {
         return (
-            <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#fff" />
-            </View>
+            <SafeAreaView style={styles.safe}>
+                <View style={styles.center}>
+                    <ActivityIndicator size="large" color={GOLD} />
+                    <Text style={styles.loadingText}>Завантаження профілю...</Text>
+                </View>
+            </SafeAreaView>
         );
     }
 
+    const displayName = name.trim() || user?.email?.split('@')[0] || 'Користувач';
+    const coldFraction = (coldSensitivity + 5) / 10;
+
     return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <View style={styles.header}>
-                <Text style={styles.title}>Profile</Text>
-                <Text style={styles.email}>{user?.email}</Text>
-            </View>
+        <SafeAreaView style={styles.safe}>
+            <StatusBar barStyle="light-content" backgroundColor={BG} />
 
-            <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Personal Info</Text>
+            <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={styles.container}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+            >
+                {/* ══ HERO ══════════════════════════════════════════════ */}
+                <View style={styles.hero}>
+                    <View style={styles.avatarWrap}>
+                        <Text style={styles.avatarText}>
+                            {getInitials(user?.name, user?.email)}
+                        </Text>
+                    </View>
+                    <Text style={styles.heroName}>{displayName}</Text>
+                    <Text style={styles.heroEmail}>{user?.email}</Text>
+                </View>
 
-                <Text style={styles.label}>Name</Text>
-                <TextInput
-                    value={name}
-                    onChangeText={setName}
-                    placeholder="Your name"
-                    placeholderTextColor="#666"
-                    style={styles.input}
-                    autoCapitalize="words"
-                    editable={!saving}
-                />
+                {/* ══ PERSONAL INFO ═════════════════════════════════════ */}
+                <SectionCard label="ОСОБИСТІ ДАНІ">
+                    <Text style={styles.fieldLabel}>Ім'я</Text>
+                    <TextInput
+                        value={name}
+                        onChangeText={setName}
+                        placeholder="Введи своє ім'я..."
+                        placeholderTextColor={MUTED}
+                        style={styles.input}
+                        autoCapitalize="words"
+                        editable={!saving}
+                    />
+                </SectionCard>
 
-                <Text style={styles.sectionTitle}>Style Preference</Text>
-                <View style={styles.styleRow}>
-                    {[
-                        { label: 'Casual', value: 'CASUAL' as const },
-                        { label: 'Formal', value: 'FORMAL' as const },
-                        { label: 'Sporty', value: 'SPORTY' as const },
-                    ].map((item) => (
-                        <Pressable
-                            key={item.value}
-                            style={[
-                                styles.styleBtn,
-                                style === item.value && styles.styleBtnActive,
-                            ]}
-                            onPress={() => setStyle(item.value)}
-                        >
-                            <Text
-                                style={[
-                                    styles.styleBtnText,
-                                    style === item.value && styles.styleBtnTextActive,
-                                ]}
-                            >
-                                {item.label}
+                {/* ══ STYLE ═════════════════════════════════════════════ */}
+                <SectionCard label="СТИЛЬ">
+                    <View style={styles.styleRow}>
+                        {STYLE_OPTIONS.map(opt => {
+                            const active = style === opt.value;
+                            return (
+                                <Pressable
+                                    key={opt.value}
+                                    style={[styles.styleCard, active && styles.styleCardActive]}
+                                    onPress={() => setStyle(opt.value)}
+                                >
+                                    <Text style={styles.styleIcon}>{opt.icon}</Text>
+                                    <Text style={[styles.styleLabel, active && styles.styleLabelActive]}>
+                                        {opt.label}
+                                    </Text>
+                                    {active && <View style={styles.styleDot} />}
+                                </Pressable>
+                            );
+                        })}
+                    </View>
+                </SectionCard>
+
+                {/* ══ COLD SENSITIVITY ══════════════════════════════════ */}
+                <SectionCard label="ЧУТЛИВІСТЬ ДО ХОЛОДУ">
+                    {/* Value badge */}
+                    <View style={styles.coldHeader}>
+                        <Text style={styles.coldLevelLabel}>{getColdLabel(coldSensitivity)}</Text>
+                        <View style={styles.coldBadge}>
+                            <Text style={styles.coldBadgeText}>
+                                {coldSensitivity > 0 ? `+${coldSensitivity}` : coldSensitivity}
                             </Text>
-                        </Pressable>
-                    ))}
-                </View>
+                        </View>
+                    </View>
 
-                <Text style={styles.sectionTitle}>Cold Sensitivity</Text>
-                <Text style={styles.label}>Рівень: {coldSensitivity}</Text>
-                <View style={styles.sliderWrapper}>
-                    <Text style={styles.sliderEdge}>Менш чутливий</Text>
-                    <Text style={styles.sliderEdge}>Більш чутливий</Text>
-                </View>
-                <Slider
-                    minimumValue={-5}
-                    maximumValue={5}
-                    step={1}
-                    value={coldSensitivity}
-                    onValueChange={setColdSensitivity}
-                    minimumTrackTintColor="#fff"
-                    maximumTrackTintColor="#2a2a2a"
-                    thumbTintColor="#fff"
-                    style={styles.slider}
-                />
-                <View style={styles.tickRow}>
-                    {[-5, -3, -1, 0, 1, 3, 5].map((tick) => (
-                        <Text key={tick} style={styles.tickText}>{tick}</Text>
-                    ))}
-                </View>
-                <Text style={styles.sensitivityHint}>{getColdSensitivityMeaning(coldSensitivity)}</Text>
+                    {/* Custom track */}
+                    <View style={styles.coldTrackWrap}>
+                        <View style={styles.coldTrack}>
+                            <View style={[styles.coldFill, { width: `${coldFraction * 100}%` as any }]} />
+                        </View>
+                        <Slider
+                            style={styles.slider}
+                            minimumValue={-5}
+                            maximumValue={5}
+                            step={1}
+                            value={coldSensitivity}
+                            onValueChange={setColdSensitivity}
+                            minimumTrackTintColor="transparent"
+                            maximumTrackTintColor="transparent"
+                            thumbTintColor={GOLD}
+                        />
+                    </View>
 
-                <Text style={styles.sectionTitle}>Favorite Categories</Text>
-                <View style={styles.categoriesContainer}>
-                    {['Casual', 'Business', 'Sportwear', 'Streetwear'].map((cat) => (
-                        <Pressable
-                            key={cat}
-                            style={[
-                                styles.catBtn,
-                                favoriteCatsLocal.includes(cat) && styles.catBtnActive,
-                            ]}
-                            onPress={() => toggleCat(cat)}
-                        >
-                            <Text
-                                style={[
-                                    styles.catBtnText,
-                                    favoriteCatsLocal.includes(cat) && styles.catBtnTextActive,
-                                ]}
-                            >
-                                {cat}
-                            </Text>
-                        </Pressable>
-                    ))}
-                </View>
+                    {/* Tick labels */}
+                    <View style={styles.tickRow}>
+                        <Text style={styles.tickEdge}>Менш чутливий</Text>
+                        <Text style={styles.tickEdge}>Більш чутливий</Text>
+                    </View>
 
-                {error && <Text style={styles.errorText}>{error}</Text>}
-                {success && <Text style={styles.successText}>{success}</Text>}
+                    <View style={styles.coldHintBox}>
+                        <Text style={styles.coldHintIcon}>🌡️</Text>
+                        <Text style={styles.coldHint}>{getColdHint(coldSensitivity)}</Text>
+                    </View>
+                </SectionCard>
 
+                {/* ══ FAVORITE CATEGORIES ═══════════════════════════════ */}
+                <SectionCard label="УЛЮБЛЕНІ КАТЕГОРІЇ">
+                    <View style={styles.catsGrid}>
+                        {CAT_OPTIONS.map(cat => {
+                            const active = favoriteCats.includes(cat.value);
+                            return (
+                                <Pressable
+                                    key={cat.value}
+                                    style={[styles.catChip, active && styles.catChipActive]}
+                                    onPress={() => toggleCat(cat.value)}
+                                >
+                                    <Text style={styles.catChipIcon}>{cat.icon}</Text>
+                                    <Text style={[styles.catChipLabel, active && styles.catChipLabelActive]}>
+                                        {cat.label}
+                                    </Text>
+                                </Pressable>
+                            );
+                        })}
+                    </View>
+                </SectionCard>
+
+                {/* ══ STATUS MESSAGES ═══════════════════════════════════ */}
+                {!!error && (
+                    <View style={styles.errorBanner}>
+                        <Text style={styles.errorText}>⚠️  {error}</Text>
+                    </View>
+                )}
+                {!!success && (
+                    <View style={styles.successBanner}>
+                        <Text style={styles.successText}>✓  {success}</Text>
+                    </View>
+                )}
+
+                {/* ══ SAVE BUTTON ═══════════════════════════════════════ */}
                 <Pressable
-                    style={[styles.saveBtn, saving && styles.btnDisabled]}
+                    style={({ pressed }) => [
+                        styles.saveBtn,
+                        saving && { opacity: 0.6 },
+                        pressed && !saving && { opacity: 0.85 },
+                    ]}
                     onPress={handleSave}
                     disabled={saving}
                 >
-                    {saving ? (
-                        <ActivityIndicator color="#000" />
-                    ) : (
-                        <Text style={styles.saveBtnText}>Save Changes</Text>
-                    )}
+                    {saving
+                        ? <ActivityIndicator color="#000" />
+                        : <Text style={styles.saveBtnText}>Зберегти зміни</Text>
+                    }
                 </Pressable>
-            </View>
 
-            <Pressable style={styles.logoutBtn} onPress={handleLogout}>
-                <Text style={styles.logoutBtnText}>Logout</Text>
-            </Pressable>
-        </ScrollView>
+                {/* ══ LOGOUT ════════════════════════════════════════════ */}
+                <Pressable
+                    style={({ pressed }) => [styles.logoutBtn, pressed && { opacity: 0.75 }]}
+                    onPress={logout}
+                >
+                    <Text style={styles.logoutBtnText}>Вийти з акаунту</Text>
+                </Pressable>
+
+                <View style={{ height: 8 }} />
+            </ScrollView>
+
+            {/* ══ BOTTOM TAB BAR ══════════════════════════════════════ */}
+            <View style={styles.tabBar}>
+                <TabItem icon="🌬️" label="ГОЛОВНА"  onPress={() => navigation.navigate('Home')} />
+                <TabItem icon="👔"  label="ГАРДЕРОБ" onPress={() => navigation.navigate('Wardrobe')} />
+                <TabItem icon="✦"   label="СТИЛЬ"    onPress={() => navigation.navigate('Recommendation')} />
+                <TabItem icon="🕐"  label="ЖУРНАЛ"   onPress={() => navigation.navigate('RecommendationHistory')} />
+                <TabItem icon="👤"  label="ПРОФІЛЬ"  active />
+            </View>
+        </SafeAreaView>
     );
 }
 
+// ─── Section card wrapper ─────────────────────────────────────────────────────
+function SectionCard({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+        <View style={styles.sectionCard}>
+            <Text style={styles.sectionLabel}>{label}</Text>
+            <View style={styles.sectionDivider} />
+            {children}
+        </View>
+    );
+}
+
+// ─── Tab item ─────────────────────────────────────────────────────────────────
+function TabItem({ icon, label, active, onPress }: {
+    icon: string; label: string; active?: boolean; onPress?: () => void;
+}) {
+    return (
+        <Pressable
+            style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.6 }]}
+            onPress={onPress}
+        >
+            <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{icon}</Text>
+            <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+        </Pressable>
+    );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
+    safe:   { flex: 1, backgroundColor: BG },
+    scroll: { flex: 1 },
     container: {
-        flexGrow: 1,
-        padding: 16,
-        backgroundColor: '#0b0b0b',
-        gap: 16,
+        paddingHorizontal: 18,
+        paddingTop: Platform.OS === 'android' ? 20 : 10,
+        paddingBottom: 24,
+        gap: 14,
     },
+    center: {
+        flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14,
+    },
+    loadingText: { color: GRAY, fontSize: 14 },
 
-    centerContainer: {
-        flex: 1,
-        justifyContent: 'center',
+    // ── HERO ──
+    hero: {
         alignItems: 'center',
-        backgroundColor: '#0b0b0b',
-    },
-
-    header: {
-        marginTop: 20,
-        marginBottom: 20,
-    },
-
-    title: {
-        fontSize: 32,
-        fontWeight: '700',
-        color: '#fff',
-    },
-
-    email: {
-        fontSize: 14,
-        color: '#aaa',
-        marginTop: 4,
-    },
-
-    card: {
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 14,
-        padding: 16,
-        backgroundColor: '#121212',
-        gap: 12,
-    },
-
-    sectionTitle: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '700',
-        marginTop: 16,
-        marginBottom: 8,
-    },
-
-    label: {
-        color: '#fff',
-        fontSize: 14,
-        fontWeight: '600',
-    },
-
-    input: {
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 12,
-        padding: 12,
-        color: '#fff',
-        backgroundColor: '#0f0f0f',
-        fontSize: 14,
-    },
-
-    styleRow: {
-        flexDirection: 'row',
+        paddingVertical: 24,
         gap: 8,
     },
-
-    styleBtn: {
-        flex: 1,
-        paddingVertical: 10,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        backgroundColor: '#0f0f0f',
+    avatarWrap: {
+        width: 88,
+        height: 88,
+        borderRadius: 44,
+        backgroundColor: '#1A1A1A',
+        borderWidth: 2,
+        borderColor: GOLD,
         alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 4,
     },
-
-    styleBtnActive: {
-        borderColor: '#fff',
-        backgroundColor: '#fff',
+    avatarText: {
+        color: GOLD,
+        fontSize: 32,
+        fontWeight: '700',
+        letterSpacing: -0.5,
     },
-
-    styleBtnText: {
-        color: '#aaa',
-        fontWeight: '600',
+    heroName: {
+        color: WHITE,
+        fontSize: 22,
+        fontWeight: '700',
+        letterSpacing: -0.4,
+    },
+    heroEmail: {
+        color: GRAY,
         fontSize: 13,
     },
 
-    styleBtnTextActive: {
-        color: '#000',
+    // ── SECTION CARD ──
+    sectionCard: {
+        backgroundColor: CARD,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: BORDER,
+        padding: 18,
+        gap: 14,
+    },
+    sectionLabel: {
+        color: GOLD,
+        fontSize: 10,
+        fontWeight: '600',
+        letterSpacing: 1.8,
+    },
+    sectionDivider: {
+        height: 1,
+        backgroundColor: BORDER,
+        marginTop: -6,
     },
 
-    sliderWrapper: {
+    // ── INPUT ──
+    fieldLabel: {
+        color: MUTED,
+        fontSize: 11,
+        fontWeight: '600',
+        letterSpacing: 0.8,
+        marginBottom: -6,
+    },
+    input: {
+        backgroundColor: '#0F0F0F',
+        borderWidth: 1,
+        borderColor: BORDER,
+        borderRadius: 14,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        color: WHITE,
+        fontSize: 15,
+        fontWeight: '500',
+    },
+
+    // ── STYLE ──
+    styleRow: {
+        flexDirection: 'row',
+        gap: 10,
+    },
+    styleCard: {
+        flex: 1,
+        backgroundColor: '#0F0F0F',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: BORDER,
+        alignItems: 'center',
+        paddingVertical: 16,
+        gap: 6,
+    },
+    styleCardActive: {
+        borderColor: GOLD,
+        backgroundColor: GOLD + '18',
+    },
+    styleIcon: {
+        fontSize: 24,
+        lineHeight: 28,
+    },
+    styleLabel: {
+        color: GRAY,
+        fontSize: 11,
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    styleLabelActive: {
+        color: GOLD,
+    },
+    styleDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: GOLD,
+        marginTop: 2,
+    },
+
+    // ── COLD SENSITIVITY ──
+    coldHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginTop: 4,
+        alignItems: 'center',
     },
-
-    sliderEdge: {
-        color: '#888',
-        fontSize: 12,
+    coldLevelLabel: {
+        color: WHITE,
+        fontSize: 14,
+        fontWeight: '600',
+        flex: 1,
     },
-
+    coldBadge: {
+        backgroundColor: GOLD + '22',
+        borderWidth: 1,
+        borderColor: GOLD + '55',
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+    },
+    coldBadgeText: {
+        color: GOLD,
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    coldTrackWrap: {
+        position: 'relative',
+        justifyContent: 'center',
+        height: 44,
+    },
+    coldTrack: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        height: 4,
+        backgroundColor: BORDER,
+        borderRadius: 2,
+        overflow: 'hidden',
+    },
+    coldFill: {
+        height: '100%',
+        backgroundColor: GOLD,
+        borderRadius: 2,
+    },
     slider: {
         width: '100%',
-        height: 36,
+        height: 44,
     },
-
     tickRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginTop: -2,
+        marginTop: -8,
     },
-
-    tickText: {
-        color: '#777',
-        fontSize: 11,
+    tickEdge: {
+        color: MUTED,
+        fontSize: 10,
+        fontWeight: '500',
     },
-
-    sensitivityHint: {
-        color: '#9bd1ff',
+    coldHintBox: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#0F0F0F',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: BORDER,
+        padding: 12,
+        gap: 10,
+    },
+    coldHintIcon: { fontSize: 16, lineHeight: 20 },
+    coldHint: {
+        color: GRAY,
         fontSize: 12,
         lineHeight: 18,
-        marginTop: 6,
+        flex: 1,
     },
 
-    categoriesContainer: {
+    // ── CATEGORIES ──
+    catsGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 8,
+        gap: 10,
     },
-
-    catBtn: {
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 8,
+    catChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 999,
         borderWidth: 1,
-        borderColor: '#2a2a2a',
-        backgroundColor: '#0f0f0f',
+        borderColor: BORDER,
+        backgroundColor: '#0F0F0F',
     },
-
-    catBtnActive: {
-        backgroundColor: '#fff',
-        borderColor: '#fff',
+    catChipActive: {
+        borderColor: GOLD,
+        backgroundColor: GOLD + '18',
     },
-
-    catBtnText: {
-        color: '#aaa',
-        fontSize: 12,
+    catChipIcon: { fontSize: 14 },
+    catChipLabel: {
+        color: GRAY,
+        fontSize: 13,
         fontWeight: '600',
     },
-
-    catBtnTextActive: {
-        color: '#000',
+    catChipLabelActive: {
+        color: GOLD,
     },
 
-    errorText: {
-        color: '#ff6b6b',
-        fontSize: 12,
-    },
-
-    successText: {
-        color: '#51cf66',
-        fontSize: 12,
-    },
-
-    saveBtn: {
-        backgroundColor: '#fff',
-        paddingVertical: 12,
+    // ── STATUS ──
+    errorBanner: {
+        backgroundColor: RED + '14',
         borderRadius: 12,
+        borderWidth: 1,
+        borderColor: RED + '33',
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+    },
+    errorText: { color: RED, fontSize: 13 },
+    successBanner: {
+        backgroundColor: GREEN + '14',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: GREEN + '33',
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+    },
+    successText: { color: GREEN, fontSize: 13, fontWeight: '600' },
+
+    // ── BUTTONS ──
+    saveBtn: {
+        backgroundColor: GOLD,
+        borderRadius: 16,
+        paddingVertical: 16,
         alignItems: 'center',
-        marginTop: 8,
+        justifyContent: 'center',
+        minHeight: 54,
     },
-
-    btnDisabled: {
-        opacity: 0.6,
-    },
-
     saveBtnText: {
         color: '#000',
         fontWeight: '700',
-        fontSize: 16,
+        fontSize: 15,
+        letterSpacing: -0.2,
     },
-
     logoutBtn: {
         borderWidth: 1,
-        borderColor: '#ff6b6b',
-        paddingVertical: 12,
-        borderRadius: 12,
+        borderColor: RED + '55',
+        backgroundColor: RED + '10',
+        borderRadius: 16,
+        paddingVertical: 14,
         alignItems: 'center',
-        marginBottom: 40,
+    },
+    logoutBtnText: {
+        color: RED,
+        fontWeight: '700',
+        fontSize: 14,
     },
 
-    logoutBtnText: {
-        color: '#ff6b6b',
-        fontWeight: '700',
-        fontSize: 16,
+    // ── BOTTOM TAB BAR ──
+    tabBar: {
+        flexDirection: 'row',
+        backgroundColor: '#0F0F0F',
+        borderTopWidth: 1,
+        borderTopColor: BORDER,
+        paddingTop: 10,
+        paddingBottom: Platform.OS === 'android' ? 12 : 6,
+        paddingHorizontal: 6,
     },
+    tabItem:      { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 4 },
+    tabIcon:      { fontSize: 20, opacity: 0.4 },
+    tabIconActive:{ opacity: 1 },
+    tabLabel:     { color: MUTED, fontSize: 9, fontWeight: '600', letterSpacing: 0.8 },
+    tabLabelActive: { color: GOLD },
 });

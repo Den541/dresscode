@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,16 @@ import { API_BASE_URL } from '../config';
 import { useAuth } from '../context/AuthContext';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 
+// ─── Design tokens ───────────────────────────────────────────────────────────
+const GOLD   = '#C9961A';
+const BG     = '#0D0D0D';
+const CARD   = '#141414';
+const CARD2  = '#1A1A1A';
+const BORDER = '#252525';
+const WHITE  = '#FFFFFF';
+const GRAY   = '#888888';
+const MUTED  = '#444444';
+
 type Props = { navigation: any };
 
 type WeatherDto = {
@@ -29,18 +39,54 @@ type WeatherDto = {
   icon: string;
 };
 
+type RecentLook = {
+  id: string;
+  city: string;
+  createdAt: string;
+  summary: string[];
+  userRating: number | null;
+};
+
 const LAST_CITY_KEY = 'dresscode:lastCity';
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function getWeatherEmoji(description: string): string {
   const d = description.toLowerCase();
-  if (d.includes('thunder')) return '⛈️';
-  if (d.includes('snow') || d.includes('blizzard')) return '❄️';
-  if (d.includes('rain') || d.includes('drizzle') || d.includes('shower')) return '🌧️';
-  if (d.includes('fog') || d.includes('mist') || d.includes('haze')) return '🌫️';
-  if (d.includes('overcast')) return '☁️';
-  if (d.includes('cloud')) return '⛅';
-  if (d.includes('clear') || d.includes('sunny')) return '☀️';
+  if (d.includes('thunder'))                                return '⛈️';
+  if (d.includes('snow') || d.includes('blizzard'))        return '❄️';
+  if (d.includes('rain') || d.includes('drizzle'))         return '🌧️';
+  if (d.includes('fog') || d.includes('mist'))             return '🌫️';
+  if (d.includes('overcast'))                              return '☁️';
+  if (d.includes('cloud'))                                 return '⛅';
+  if (d.includes('clear') || d.includes('sunny'))         return '☀️';
   return '🌤️';
+}
+
+function getWeatherLabel(description: string, temp: number): string {
+  const d = description.toLowerCase();
+  let condition = 'Ясно';
+  if (d.includes('thunder'))                     condition = 'Гроза';
+  else if (d.includes('snow'))                   condition = 'Сніжно';
+  else if (d.includes('rain') || d.includes('drizzle')) condition = 'Дощ';
+  else if (d.includes('fog') || d.includes('mist'))    condition = 'Туман';
+  else if (d.includes('overcast') || d.includes('cloud')) condition = 'Хмарно';
+
+  let feel = '';
+  if (temp < 0)       feel = 'та Морозно';
+  else if (temp < 8)  feel = 'та Холодно';
+  else if (temp < 15) feel = 'та Прохолодно';
+  else if (temp < 22) feel = 'та Тепло';
+  else if (temp < 28) feel = 'та Спекотно';
+  else                feel = 'та Дуже Жарко';
+
+  return `${condition} ${feel}`;
+}
+
+function getTimeOfDay(): string {
+  const h = new Date().getHours();
+  if (h < 12) return 'Ідеально для ранку';
+  if (h < 18) return 'Ідеально для дня';
+  return 'Ідеально для вечора';
 }
 
 function getInitials(name?: string | null, email?: string): string {
@@ -53,54 +99,57 @@ function getInitials(name?: string | null, email?: string): string {
   return (email?.[0] ?? '?').toUpperCase();
 }
 
-function getGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 6) return 'Доброї ночі';
-  if (h < 12) return 'Доброго ранку';
-  if (h < 18) return 'Доброго дня';
-  return 'Доброго вечора';
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = now.getDate() - d.getDate();
+  if (diff === 0) return `Сьогодні • ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  if (diff === 1) return 'Вчора';
+  return d.toLocaleDateString('uk-UA', { day: 'numeric', month: 'long' });
 }
 
-function WeatherStat({
-  icon,
-  label,
-  value,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-}) {
-  return (
-    <View style={styles.statItem}>
-      <Text style={styles.statIcon}>{icon}</Text>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
+// ─── Component ───────────────────────────────────────────────────────────────
 export default function HomeScreen({ navigation }: Props) {
   const { user, accessToken } = useAuth();
-  const [city, setCity] = useState('Lviv');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [weather, setWeather] = useState<WeatherDto | null>(null);
 
+  const [city, setCity]         = useState('Kyiv');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
+  const [weather, setWeather]   = useState<WeatherDto | null>(null);
+
+  const [wardrobeCount, setWardrobeCount]   = useState<number | null>(null);
+  const [recentLooks, setRecentLooks]       = useState<RecentLook[]>([]);
+
+  // ── Load saved city ──
   useEffect(() => {
     (async () => {
       try {
-        const savedCity = await AsyncStorage.getItem(LAST_CITY_KEY);
-        if (savedCity?.trim()) setCity(savedCity);
+        const saved = await AsyncStorage.getItem(LAST_CITY_KEY);
+        if (saved?.trim()) setCity(saved);
       } catch {}
     })();
   }, []);
 
-  const getWeather = async () => {
+  // ── Load wardrobe count + recent looks ──
+  useEffect(() => {
+    if (!accessToken) return;
+    const headers = { Authorization: `Bearer ${accessToken}` };
+
+    fetchWithTimeout(`${API_BASE_URL}/wardrobe`, { headers }, 8000)
+      .then(r => r.json())
+      .then(d => Array.isArray(d) && setWardrobeCount(d.length))
+      .catch(() => {});
+
+    fetchWithTimeout(`${API_BASE_URL}/recommendations/history?limit=3`, { headers }, 8000)
+      .then(r => r.json())
+      .then(d => Array.isArray(d) && setRecentLooks(d))
+      .catch(() => {});
+  }, [accessToken]);
+
+  // ── Fetch weather ──
+  const getWeather = useCallback(async () => {
     const cleanCity = city.trim();
-    if (!cleanCity) {
-      setError('Введи назву міста');
-      return;
-    }
+    if (!cleanCity) { setError('Введи назву міста'); return; }
     try {
       setError('');
       setLoading(true);
@@ -110,11 +159,7 @@ export default function HomeScreen({ navigation }: Props) {
         10000,
       );
       const data = await res.json();
-      if (!res.ok) {
-        setWeather(null);
-        setError(data?.message ?? `Помилка: ${res.status}`);
-        return;
-      }
+      if (!res.ok) { setWeather(null); setError(data?.message ?? 'Помилка'); return; }
       setWeather(data);
       await AsyncStorage.setItem(LAST_CITY_KEY, cleanCity);
     } catch (e: any) {
@@ -123,36 +168,32 @@ export default function HomeScreen({ navigation }: Props) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [city, accessToken]);
 
-  const goToRecommendation = () => {
-    if (!weather) {
-      setError('Спочатку отримай погоду');
-      return;
-    }
+  const goToOutfit = () => {
+    if (!weather) { setError('Спочатку отримай погоду'); return; }
     navigation.navigate('Recommendation', { weather });
   };
 
-  const displayName =
-    user?.name?.trim() || user?.email?.split('@')[0] || 'Користувач';
-
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#0B0B0B" />
+      <StatusBar barStyle="light-content" backgroundColor={BG} />
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* ── HEADER ── */}
+
+        {/* ══ HEADER ══════════════════════════════════════════════ */}
         <View style={styles.header}>
-          <View style={styles.greetingBlock}>
-            <Text style={styles.greetingText}>{getGreeting()},</Text>
-            <Text style={styles.userName}>{displayName} 👋</Text>
+          <View>
+            <Text style={styles.headerEyebrow}>ТВІЙ ПЕРСОНАЛЬНИЙ СТИЛІСТ</Text>
+            <Text style={styles.headerLogo}>DressCode</Text>
           </View>
           <Pressable
-            style={({ pressed }) => [styles.avatar, pressed && { opacity: 0.75 }]}
+            style={({ pressed }) => [styles.avatar, pressed && { opacity: 0.7 }]}
             onPress={() => navigation.navigate('Profile')}
           >
             <Text style={styles.avatarText}>
@@ -161,18 +202,14 @@ export default function HomeScreen({ navigation }: Props) {
           </Pressable>
         </View>
 
-        {/* ── CITY SEARCH ── */}
+        {/* ══ SEARCH BAR ══════════════════════════════════════════ */}
         <View style={styles.searchRow}>
           <View style={styles.searchWrap}>
-            <Text style={styles.searchPinIcon}>📍</Text>
             <TextInput
               value={city}
-              onChangeText={t => {
-                setCity(t);
-                setError('');
-              }}
+              onChangeText={t => { setCity(t); setError(''); }}
               placeholder="Введи місто..."
-              placeholderTextColor="#444"
+              placeholderTextColor={MUTED}
               style={styles.searchInput}
               autoCapitalize="words"
               autoCorrect={false}
@@ -183,198 +220,245 @@ export default function HomeScreen({ navigation }: Props) {
               returnKeyType="search"
               onSubmitEditing={getWeather}
             />
+            <Text style={styles.searchWindIcon}>🌬️</Text>
           </View>
           <Pressable
-            style={({ pressed }) => [
-              styles.searchBtn,
-              loading && styles.searchBtnDisabled,
-              pressed && { opacity: 0.8 },
-            ]}
+            style={({ pressed }) => [styles.searchBtn, pressed && { opacity: 0.8 }, loading && { opacity: 0.6 }]}
             onPress={getWeather}
             disabled={loading}
           >
-            {loading ? (
-              <ActivityIndicator size="small" color="#000" />
-            ) : (
-              <Text style={styles.searchBtnText}>Знайти</Text>
-            )}
+            {loading
+              ? <ActivityIndicator size="small" color="#000" />
+              : <Text style={styles.searchBtnIcon}>🌦️</Text>
+            }
           </Pressable>
         </View>
 
-        {/* ── ERROR BANNER ── */}
+        {/* ══ ERROR ════════════════════════════════════════════════ */}
         {!!error && (
           <View style={styles.errorBanner}>
-            <Text style={styles.errorEmoji}>⚠️</Text>
-            <Text style={styles.errorText}>{error}</Text>
+            <Text style={styles.errorText}>⚠️  {error}</Text>
           </View>
         )}
 
-        {/* ── WEATHER CARD ── */}
+        {/* ══ WEATHER CARD ════════════════════════════════════════ */}
         {weather ? (
           <View style={styles.weatherCard}>
-            <View style={styles.weatherTop}>
-              <View style={styles.weatherMeta}>
-                <Text style={styles.weatherCity}>{weather.city}</Text>
-                <Text style={styles.weatherDesc}>
-                  {weather.description.charAt(0).toUpperCase() +
-                    weather.description.slice(1)}
+            {/* Top row */}
+            <View style={styles.weatherTopRow}>
+              <View>
+                <Text style={styles.weatherCity}>{weather.city}, Україна</Text>
+                <Text style={styles.weatherLabel}>
+                  {getWeatherLabel(weather.description, weather.temperature)}
                 </Text>
               </View>
-              <Text style={styles.weatherEmoji}>
-                {getWeatherEmoji(weather.description)}
-              </Text>
+              <View style={styles.weatherIconBox}>
+                <Text style={styles.weatherIconEmoji}>
+                  {getWeatherEmoji(weather.description)}
+                </Text>
+              </View>
             </View>
 
-            <Text style={styles.weatherTemp}>
-              {Math.round(weather.temperature)}°
-            </Text>
+            {/* Stats row */}
+            <View style={styles.weatherStats}>
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>ВІДЧУВАЄТЬСЯ</Text>
+                <Text style={styles.statValue}>{Math.round(weather.feelsLike)}°C</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>ВІТЕР</Text>
+                <Text style={styles.statValue}>{(weather.windSpeed * 3.6).toFixed(0)} км/г</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>ВОЛОГІСТЬ</Text>
+                <Text style={styles.statValue}>{weather.humidity}%</Text>
+              </View>
+            </View>
 
+            {/* Divider */}
             <View style={styles.weatherDivider} />
 
-            <View style={styles.weatherStats}>
-              <WeatherStat
-                icon="🌡️"
-                label="Відчувається"
-                value={`${Math.round(weather.feelsLike)}°C`}
-              />
-              <View style={styles.statDivider} />
-              <WeatherStat
-                icon="💧"
-                label="Вологість"
-                value={`${weather.humidity}%`}
-              />
-              <View style={styles.statDivider} />
-              <WeatherStat
-                icon="💨"
-                label="Вітер"
-                value={`${weather.windSpeed} м/с`}
-              />
-              {weather.precipitationMm > 0 && (
-                <>
-                  <View style={styles.statDivider} />
-                  <WeatherStat
-                    icon="🌧️"
-                    label="Опади"
-                    value={`${weather.precipitationMm} мм`}
-                  />
-                </>
-              )}
+            {/* Bottom row */}
+            <View style={styles.weatherBottom}>
+              <Text style={styles.weatherTimeOfDay}>{getTimeOfDay()}</Text>
+              <Pressable
+                style={({ pressed }) => [styles.outfitBtn, pressed && { opacity: 0.85 }]}
+                onPress={goToOutfit}
+              >
+                <Text style={styles.outfitBtnText}>Підібрати образ →</Text>
+              </Pressable>
             </View>
           </View>
         ) : (
-          !loading &&
-          !error && (
+          !loading && !error && (
             <View style={styles.emptyWeather}>
               <Text style={styles.emptyEmoji}>🌤️</Text>
               <Text style={styles.emptyTitle}>Яка погода сьогодні?</Text>
               <Text style={styles.emptyDesc}>
-                Введи своє місто, щоб дізнатись погоду та отримати рекомендацію образу від AI
+                Введи місто, щоб дізнатись погоду та отримати рекомендацію образу від AI
               </Text>
             </View>
           )
         )}
 
-        {/* ── PRIMARY ACTION ── */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.recommendBtn,
-            !weather && styles.recommendBtnDisabled,
-            pressed && weather && { opacity: 0.85 },
-          ]}
-          onPress={goToRecommendation}
-        >
-          <View style={styles.recommendBtnInner}>
-            <Text style={styles.recommendBtnIcon}>✨</Text>
-            <View>
-              <Text style={styles.recommendBtnTitle}>Підібрати образ</Text>
-              <Text style={styles.recommendBtnSub}>
-                {weather
-                  ? `На основі погоди у ${weather.city}`
-                  : 'Спочатку отримай погоду'}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.recommendArrow}>→</Text>
-        </Pressable>
-
-        {/* ── SECTION TITLE ── */}
-        <Text style={styles.sectionTitle}>Розділи</Text>
-
-        {/* ── NAV CARDS ── */}
-        <View style={styles.navRow}>
+        {/* ══ QUICK CARDS ═════════════════════════════════════════ */}
+        <View style={styles.quickGrid}>
           <Pressable
-            style={({ pressed }) => [styles.navCard, pressed && styles.navCardPressed]}
+            style={({ pressed }) => [styles.quickCard, pressed && styles.cardPressed]}
             onPress={() => navigation.navigate('Wardrobe')}
           >
-            <Text style={styles.navCardEmoji}>👗</Text>
-            <Text style={styles.navCardLabel}>Гардероб</Text>
-            <Text style={styles.navCardDesc}>Мої речі</Text>
+            <View style={styles.quickIconBox}>
+              <Text style={styles.quickIcon}>👔</Text>
+            </View>
+            <Text style={styles.quickLabel}>Гардероб</Text>
+            <Text style={styles.quickSub}>
+              {wardrobeCount != null ? `${wardrobeCount} РЕЧЕЙ` : 'МОЇ РЕЧІ'}
+            </Text>
           </Pressable>
 
           <Pressable
-            style={({ pressed }) => [styles.navCard, pressed && styles.navCardPressed]}
+            style={({ pressed }) => [styles.quickCard, pressed && styles.cardPressed]}
             onPress={() => navigation.navigate('RecommendationHistory')}
           >
-            <Text style={styles.navCardEmoji}>🗂️</Text>
-            <Text style={styles.navCardLabel}>Історія</Text>
-            <Text style={styles.navCardDesc}>Минулі образи</Text>
+            <View style={styles.quickIconBox}>
+              <Text style={styles.quickIcon}>✦</Text>
+            </View>
+            <Text style={styles.quickLabel}>Аналітика</Text>
+            <Text style={styles.quickSub}>
+              {recentLooks.length > 0 ? `${recentLooks.length} ОБРАЗІВ` : 'ОГЛЯД СТИЛЮ'}
+            </Text>
           </Pressable>
         </View>
+
+        {/* ══ RECENT LOOKS ════════════════════════════════════════ */}
+        {recentLooks.length > 0 && (
+          <View>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>ОСТАННІ ОБРАЗИ</Text>
+              <Pressable onPress={() => navigation.navigate('RecommendationHistory')}>
+                <Text style={styles.sectionLink}>Всі</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.looksList}>
+              {recentLooks.map(look => (
+                <Pressable
+                  key={look.id}
+                  style={({ pressed }) => [styles.lookCard, pressed && styles.cardPressed]}
+                  onPress={() => navigation.navigate('RecommendationHistoryDetails', { id: look.id })}
+                >
+                  <View style={styles.lookThumb}>
+                    <Text style={styles.lookThumbEmoji}>
+                      {getWeatherEmoji(look.summary?.[0] ?? '')}
+                    </Text>
+                  </View>
+                  <View style={styles.lookInfo}>
+                    <Text style={styles.lookTitle} numberOfLines={1}>
+                      {look.summary?.[0] ?? 'Образ'}
+                    </Text>
+                    <Text style={styles.lookMeta}>
+                      {formatDate(look.createdAt)} • {look.city}
+                    </Text>
+                  </View>
+                  <Text style={styles.lookDots}>•••</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+
+        <View style={{ height: 24 }} />
       </ScrollView>
+
+      {/* ══ BOTTOM TAB BAR ══════════════════════════════════════ */}
+      <View style={styles.tabBar}>
+        <TabItem icon="🌬️" label="ГОЛОВНА"  active onPress={() => {}} />
+        <TabItem icon="👔"  label="ГАРДЕРОБ" onPress={() => navigation.navigate('Wardrobe')} />
+        <TabItem icon="✦"   label="СТИЛЬ"    onPress={goToOutfit} />
+        <TabItem icon="🕐"  label="ЖУРНАЛ"   onPress={() => navigation.navigate('RecommendationHistory')} />
+        <TabItem icon="👤"  label="ПРОФІЛЬ"  onPress={() => navigation.navigate('Profile')} />
+      </View>
     </SafeAreaView>
   );
 }
 
+// ─── Tab item ─────────────────────────────────────────────────────────────────
+function TabItem({
+  icon,
+  label,
+  active,
+  onPress,
+}: {
+  icon: string;
+  label: string;
+  active?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.6 }]}
+      onPress={onPress}
+    >
+      <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{icon}</Text>
+      <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#0B0B0B',
+    backgroundColor: BG,
   },
   scroll: {
     flex: 1,
   },
   container: {
-    padding: 20,
-    paddingTop: Platform.OS === 'android' ? 20 : 12,
-    paddingBottom: 48,
-    gap: 16,
+    paddingHorizontal: 18,
+    paddingTop: Platform.OS === 'android' ? 20 : 10,
+    paddingBottom: 16,
+    gap: 14,
   },
 
   // ── HEADER ──
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    marginBottom: 4,
   },
-  greetingBlock: {
-    gap: 2,
+  headerEyebrow: {
+    color: GOLD,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1.8,
+    marginBottom: 4,
   },
-  greetingText: {
-    fontSize: 14,
-    color: '#555',
-    fontWeight: '400',
-  },
-  userName: {
-    fontSize: 22,
-    color: '#fff',
+  headerLogo: {
+    color: GOLD,
+    fontSize: 36,
     fontWeight: '700',
-    letterSpacing: -0.4,
+    letterSpacing: -1,
+    lineHeight: 40,
   },
   avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#1C1C1C',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: CARD2,
     borderWidth: 1.5,
-    borderColor: '#2E2E2E',
+    borderColor: GOLD + '60',
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 4,
   },
   avatarText: {
-    color: '#fff',
-    fontSize: 16,
+    color: GOLD,
+    fontSize: 17,
     fontWeight: '700',
-    letterSpacing: -0.3,
   },
 
   // ── SEARCH ──
@@ -387,244 +471,310 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#141414',
-    borderRadius: 14,
+    backgroundColor: CARD,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#252525',
-    paddingHorizontal: 14,
-    height: 52,
-    gap: 10,
-  },
-  searchPinIcon: {
-    fontSize: 16,
+    borderColor: BORDER,
+    paddingHorizontal: 16,
+    height: 54,
   },
   searchInput: {
     flex: 1,
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '400',
+    color: WHITE,
+    fontSize: 16,
+    fontWeight: '500',
     paddingVertical: 0,
   },
+  searchWindIcon: {
+    fontSize: 18,
+    marginLeft: 8,
+  },
   searchBtn: {
-    height: 52,
-    paddingHorizontal: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    width: 54,
+    height: 54,
+    borderRadius: 16,
+    backgroundColor: GOLD,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 85,
   },
-  searchBtnDisabled: {
-    opacity: 0.5,
-  },
-  searchBtnText: {
-    color: '#000',
-    fontWeight: '700',
-    fontSize: 14,
-    letterSpacing: -0.2,
+  searchBtnIcon: {
+    fontSize: 22,
   },
 
   // ── ERROR ──
   errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FF6B6B14',
+    backgroundColor: '#FF4D4D18',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#FF6B6B33',
+    borderColor: '#FF4D4D33',
     paddingVertical: 12,
     paddingHorizontal: 14,
-    gap: 8,
-  },
-  errorEmoji: {
-    fontSize: 14,
   },
   errorText: {
     color: '#FF6B6B',
     fontSize: 13,
-    flex: 1,
-    lineHeight: 18,
   },
 
   // ── WEATHER CARD ──
   weatherCard: {
-    backgroundColor: '#111111',
+    backgroundColor: CARD,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: '#1E1E1E',
-    padding: 22,
-    gap: 0,
+    borderColor: BORDER,
+    padding: 20,
   },
-  weatherTop: {
+  weatherTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-  },
-  weatherMeta: {
-    gap: 3,
+    marginBottom: 18,
   },
   weatherCity: {
-    fontSize: 17,
-    color: '#fff',
+    color: GOLD,
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+    marginBottom: 6,
+  },
+  weatherLabel: {
+    color: WHITE,
+    fontSize: 24,
     fontWeight: '700',
-    letterSpacing: -0.2,
+    letterSpacing: -0.5,
+    lineHeight: 30,
+    maxWidth: 200,
   },
-  weatherDesc: {
-    fontSize: 13,
-    color: '#666',
+  weatherIconBox: {
+    width: 54,
+    height: 54,
+    borderRadius: 14,
+    backgroundColor: CARD2,
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  weatherEmoji: {
-    fontSize: 52,
-    lineHeight: 58,
-  },
-  weatherTemp: {
-    fontSize: 80,
-    color: '#fff',
-    fontWeight: '700',
-    letterSpacing: -3,
-    lineHeight: 90,
-    marginTop: 4,
-  },
-  weatherDivider: {
-    height: 1,
-    backgroundColor: '#1E1E1E',
-    marginTop: 16,
-    marginBottom: 16,
+  weatherIconEmoji: {
+    fontSize: 26,
   },
   weatherStats: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 18,
   },
-  statItem: {
+  statCol: {
     flex: 1,
-    alignItems: 'center',
     gap: 4,
+  },
+  statLabel: {
+    color: MUTED,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  statValue: {
+    color: WHITE,
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   statDivider: {
     width: 1,
-    height: 32,
-    backgroundColor: '#1E1E1E',
+    height: 36,
+    backgroundColor: BORDER,
+    marginHorizontal: 12,
   },
-  statIcon: {
-    fontSize: 18,
-    lineHeight: 22,
+  weatherDivider: {
+    height: 1,
+    backgroundColor: BORDER,
+    marginBottom: 16,
   },
-  statValue: {
-    color: '#fff',
+  weatherBottom: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  weatherTimeOfDay: {
+    color: GRAY,
     fontSize: 13,
-    fontWeight: '600',
+  },
+  outfitBtn: {
+    backgroundColor: GOLD,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 50,
+  },
+  outfitBtnText: {
+    color: '#000',
+    fontWeight: '700',
+    fontSize: 13,
     letterSpacing: -0.2,
   },
-  statLabel: {
-    color: '#444',
-    fontSize: 10,
-    textAlign: 'center',
-  },
 
-  // ── EMPTY STATE ──
+  // ── EMPTY WEATHER ──
   emptyWeather: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 28,
     gap: 10,
   },
   emptyEmoji: {
-    fontSize: 56,
-    lineHeight: 64,
+    fontSize: 52,
+    lineHeight: 60,
   },
   emptyTitle: {
-    color: '#fff',
+    color: WHITE,
     fontSize: 18,
     fontWeight: '600',
     letterSpacing: -0.3,
   },
   emptyDesc: {
-    color: '#555',
+    color: MUTED,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
 
-  // ── PRIMARY CTA ──
-  recommendBtn: {
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  recommendBtnDisabled: {
-    backgroundColor: '#141414',
-    borderWidth: 1,
-    borderColor: '#222',
-  },
-  recommendBtnInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  recommendBtnIcon: {
-    fontSize: 26,
-    lineHeight: 32,
-  },
-  recommendBtnTitle: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-  },
-  recommendBtnSub: {
-    color: '#666',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  recommendArrow: {
-    color: '#000',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-
-  // ── SECTION TITLE ──
-  sectionTitle: {
-    color: '#3A3A3A',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-  },
-
-  // ── NAV CARDS ──
-  navRow: {
+  // ── QUICK CARDS ──
+  quickGrid: {
     flexDirection: 'row',
     gap: 12,
   },
-  navCard: {
+  quickCard: {
     flex: 1,
-    backgroundColor: '#111111',
-    borderRadius: 18,
+    backgroundColor: CARD,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#1E1E1E',
+    borderColor: BORDER,
     padding: 18,
-    gap: 4,
+    gap: 6,
   },
-  navCardPressed: {
-    opacity: 0.65,
-  },
-  navCardEmoji: {
-    fontSize: 28,
-    lineHeight: 36,
+  quickIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: CARD2,
+    borderWidth: 1,
+    borderColor: GOLD + '44',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 6,
   },
-  navCardLabel: {
-    color: '#fff',
-    fontSize: 15,
+  quickIcon: {
+    fontSize: 20,
+  },
+  quickLabel: {
+    color: WHITE,
+    fontSize: 16,
     fontWeight: '700',
     letterSpacing: -0.2,
   },
-  navCardDesc: {
-    color: '#555',
+  quickSub: {
+    color: GOLD,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+  },
+  cardPressed: {
+    opacity: 0.65,
+  },
+
+  // ── SECTION HEADER ──
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionTitle: {
+    color: GOLD,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1.8,
+  },
+  sectionLink: {
+    color: GOLD,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  // ── LOOK CARDS ──
+  looksList: {
+    gap: 10,
+  },
+  lookCard: {
+    backgroundColor: CARD,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  lookThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: CARD2,
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lookThumbEmoji: {
+    fontSize: 22,
+  },
+  lookInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  lookTitle: {
+    color: WHITE,
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+  },
+  lookMeta: {
+    color: GRAY,
     fontSize: 12,
+  },
+  lookDots: {
+    color: MUTED,
+    fontSize: 14,
+    letterSpacing: 2,
+  },
+
+  // ── BOTTOM TAB BAR ──
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#0F0F0F',
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'android' ? 12 : 6,
+    paddingHorizontal: 6,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+  },
+  tabIcon: {
+    fontSize: 20,
+    opacity: 0.4,
+  },
+  tabIconActive: {
+    opacity: 1,
+  },
+  tabLabel: {
+    color: MUTED,
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+  },
+  tabLabelActive: {
+    color: GOLD,
   },
 });

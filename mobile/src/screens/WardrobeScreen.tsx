@@ -15,6 +15,9 @@ import {
     Platform,
     TouchableWithoutFeedback,
     Keyboard,
+    Dimensions,
+    SafeAreaView,
+    StatusBar,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
@@ -27,21 +30,38 @@ import {
     WARDROBE_CATEGORY_LABELS,
 } from '../utils/wardrobe';
 
-type Props = { navigation: any };
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const GOLD = '#C9961A';
+const BG = '#0D0D0D';
+const CARD = '#141414';
+const CARD2 = '#1A1A1A';
+const BORDER = '#252525';
+const WHITE = '#FFFFFF';
+const GRAY = '#888888';
+const MUTED = '#444444';
+const RED = '#FF6B6B';
 
+const { width: SCREEN_W } = Dimensions.get('window');
+const GRID_PAD = 18;
+const GRID_GAP = 12;
+const CARD_W = (SCREEN_W - GRID_PAD * 2 - GRID_GAP) / 2;
+
+type Props = { navigation: any };
 type FilterValue = 'ALL' | WardrobeCategory;
 
 const FILTERS: Array<{ label: string; value: FilterValue }> = [
-    { label: 'Увесь одяг', value: 'ALL' },
-    { label: 'Верхній одяг', value: 'TOPS' },
-    { label: 'Куртки', value: 'OUTERWEAR' },
-    { label: 'Штани', value: 'BOTTOMS' },
-    { label: 'Взуття', value: 'SHOES' },
-    { label: 'Аксесуари', value: 'ACCESSORIES' },
+    { label: 'ВСЕ', value: 'ALL' },
+    { label: 'ВЕРХ', value: 'TOPS' },
+    { label: 'НИЗ', value: 'BOTTOMS' },
+    { label: 'ВЕРХНІЙ ОДЯГ', value: 'OUTERWEAR' },
+    { label: 'ВЗУТТЯ', value: 'SHOES' },
+    { label: 'АКСЕСУАРИ', value: 'ACCESSORIES' },
 ];
 
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function WardrobeScreen({ navigation }: Props) {
     const { accessToken, refreshAccessToken } = useAuth();
+
     const [items, setItems] = useState<WardrobeItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -51,96 +71,58 @@ export default function WardrobeScreen({ navigation }: Props) {
     const [analysisComment, setAnalysisComment] = useState('');
     const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
 
+    // ── Load items ──
     const loadItems = useCallback(async () => {
         try {
             setLoading(true);
             setError('');
-
-            if (!accessToken) {
-                setError('Not authenticated');
-                return;
-            }
-
+            if (!accessToken) { setError('Не авторизовано'); return; }
             try {
-                const data = await fetchWardrobeItems(accessToken);
-                setItems(data);
+                setItems(await fetchWardrobeItems(accessToken));
             } catch (err) {
-                const message = err instanceof Error ? err.message : 'Failed to load wardrobe';
-                const isUnauthorized = message.toLowerCase().includes('unauthorized');
-
-                if (isUnauthorized) {
-                    const nextAccessToken = await refreshAccessToken();
-                    if (!nextAccessToken) {
-                        setError('Session expired. Please login again.');
-                        return;
-                    }
-
-                    const data = await fetchWardrobeItems(nextAccessToken);
-                    setItems(data);
-                    return;
-                }
-
-                throw err;
+                const msg = err instanceof Error ? err.message : '';
+                if (!msg.toLowerCase().includes('unauthorized')) throw err;
+                const next = await refreshAccessToken();
+                if (!next) { setError('Сесія закінчилась'); return; }
+                setItems(await fetchWardrobeItems(next));
             }
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to load wardrobe';
-            setError(message);
+            setError(err instanceof Error ? err.message : 'Помилка завантаження');
         } finally {
             setLoading(false);
         }
     }, [accessToken, refreshAccessToken]);
 
-    useFocusEffect(
-        useCallback(() => {
-            loadItems();
-        }, [loadItems]),
+    useFocusEffect(useCallback(() => { loadItems(); }, [loadItems]));
+
+    const visibleItems = useMemo(() =>
+        selectedFilter === 'ALL' ? items : items.filter(i => i.category === selectedFilter),
+        [items, selectedFilter],
     );
 
-    const visibleItems = useMemo(() => {
-        if (selectedFilter === 'ALL') {
-            return items;
-        }
-
-        return items.filter((item) => item.category === selectedFilter);
-    }, [items, selectedFilter]);
-
+    // ── Delete ──
     const handleDelete = (item: WardrobeItem) => {
         Alert.alert('Видалити?', `Видалити "${item.name}"?`, [
             { text: 'Скасувати', style: 'cancel' },
             {
-                text: 'Видалити',
-                style: 'destructive',
+                text: 'Видалити', style: 'destructive',
                 onPress: async () => {
-                    if (!accessToken) {
-                        setError('Not authenticated');
-                        return;
-                    }
-
+                    if (!accessToken) return;
                     try {
                         setDeletingId(item.id);
                         try {
                             await deleteWardrobeItem(accessToken, item.id);
                         } catch (err) {
-                            const message = err instanceof Error ? err.message : 'Failed to delete item';
-                            const isUnauthorized = message.toLowerCase().includes('unauthorized');
-
-                            if (!isUnauthorized) {
-                                throw err;
-                            }
-
-                            const nextAccessToken = await refreshAccessToken();
-                            if (!nextAccessToken) {
-                                setError('Session expired. Please login again.');
-                                return;
-                            }
-
-                            await deleteWardrobeItem(nextAccessToken, item.id);
+                            const msg = err instanceof Error ? err.message : '';
+                            if (!msg.toLowerCase().includes('unauthorized')) throw err;
+                            const next = await refreshAccessToken();
+                            if (!next) { setError('Сесія закінчилась'); return; }
+                            await deleteWardrobeItem(next, item.id);
                         }
-
-                        setItems((prev) => prev.filter((x) => x.id !== item.id));
+                        setItems(prev => prev.filter(x => x.id !== item.id));
+                        setSelectedItem(null);
                     } catch (err) {
-                        const message = err instanceof Error ? err.message : 'Failed to delete item';
-                        setError(message);
+                        setError(err instanceof Error ? err.message : 'Помилка видалення');
                     } finally {
                         setDeletingId(null);
                     }
@@ -149,183 +131,163 @@ export default function WardrobeScreen({ navigation }: Props) {
         ]);
     };
 
-    const handleOpenItem = (item: WardrobeItem) => {
-        setSelectedItem(item);
-        setAnalysisComment('');
-    };
-
+    // ── Reanalyze ──
     const handleReanalyze = async () => {
-        if (!selectedItem) {
-            return;
-        }
-
-        if (!accessToken) {
-            setError('Not authenticated');
-            return;
-        }
-
+        if (!selectedItem || !accessToken) return;
         try {
             setReanalyzingId(selectedItem.id);
-
-            let tokenToUse = accessToken;
-
             const run = async (token: string) =>
                 reanalyzeWardrobeItem(token, selectedItem.id, analysisComment);
-
-            let updatedItem: Pick<WardrobeItem, 'id' | 'name' | 'category' | 'aiAnalysis' | 'aiAnalyzedAt'>;
+            let updated: Awaited<ReturnType<typeof run>>;
             try {
-                updatedItem = await run(tokenToUse);
+                updated = await run(accessToken);
             } catch (err) {
-                const message = err instanceof Error ? err.message : 'Failed to reanalyze item';
-                const isUnauthorized = message.toLowerCase().includes('unauthorized');
-                if (!isUnauthorized) {
-                    throw err;
-                }
-
-                const nextAccessToken = await refreshAccessToken();
-                if (!nextAccessToken) {
-                    throw new Error('Session expired. Please login again.');
-                }
-
-                tokenToUse = nextAccessToken;
-                updatedItem = await run(tokenToUse);
+                const msg = err instanceof Error ? err.message : '';
+                if (!msg.toLowerCase().includes('unauthorized')) throw err;
+                const next = await refreshAccessToken();
+                if (!next) throw new Error('Сесія закінчилась');
+                updated = await run(next);
             }
-
-            setItems((prev) =>
-                prev.map((item) =>
-                    item.id === selectedItem.id
-                        ? {
-                              ...item,
-                              name: updatedItem.name,
-                              category: updatedItem.category,
-                              aiAnalysis: updatedItem.aiAnalysis ?? null,
-                              aiAnalyzedAt: updatedItem.aiAnalyzedAt ?? null,
-                          }
-                        : item,
-                ),
-            );
-
-            setSelectedItem((prev) =>
-                prev
+            const patch = (item: WardrobeItem) =>
+                item.id === selectedItem.id
                     ? {
-                          ...prev,
-                          name: updatedItem.name,
-                          category: updatedItem.category,
-                          aiAnalysis: updatedItem.aiAnalysis ?? null,
-                          aiAnalyzedAt: updatedItem.aiAnalyzedAt ?? null,
-                      }
-                    : prev,
-            );
+                        ...item, name: updated.name, category: updated.category,
+                        aiAnalysis: updated.aiAnalysis ?? null,
+                        aiAnalyzedAt: updated.aiAnalyzedAt ?? null
+                    }
+                    : item;
+            setItems(prev => prev.map(patch));
+            setSelectedItem(prev => prev ? patch(prev) : prev);
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to reanalyze item';
-            setError(message);
+            setError(err instanceof Error ? err.message : 'Помилка оновлення');
         } finally {
             setReanalyzingId(null);
         }
     };
 
+    // ── Loading / Error states ──
     if (loading) {
         return (
-            <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#fff" />
-            </View>
+            <SafeAreaView style={styles.safe}>
+                <View style={styles.center}>
+                    <ActivityIndicator size="large" color={GOLD} />
+                    <Text style={styles.loadingText}>Завантаження гардеробу...</Text>
+                </View>
+            </SafeAreaView>
         );
     }
 
-    if (error) {
+    if (error && items.length === 0) {
         return (
-            <View style={styles.centerContainer}>
-                <Text style={styles.errorText}>{error}</Text>
-                <Pressable style={styles.actionBtn} onPress={loadItems}>
-                    <Text style={styles.actionBtnText}>Retry</Text>
-                </Pressable>
-            </View>
+            <SafeAreaView style={styles.safe}>
+                <View style={styles.center}>
+                    <Text style={styles.errorIcon}>⚠️</Text>
+                    <Text style={styles.errorText}>{error}</Text>
+                    <Pressable style={styles.retryBtn} onPress={loadItems}>
+                        <Text style={styles.retryBtnText}>Спробувати знову</Text>
+                    </Pressable>
+                </View>
+            </SafeAreaView>
         );
     }
 
-    const renderHeader = () => (
+    // ── Header for FlatList ──
+    const ListHeader = (
         <>
-            <View style={styles.headerRow}>
-                <Text style={styles.title}>Гардероб</Text>
+            {/* Page header */}
+            <View style={styles.pageHeader}>
+                <Text style={styles.pageTitle}>Підібраний Одяг</Text>
                 <Pressable
-                    style={styles.addBtn}
+                    style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
                     onPress={() => navigation.navigate('AddWardrobeItem')}
                 >
-                    <Text style={styles.addBtnText}>Додати річ</Text>
+                    <Text style={styles.addBtnText}>＋</Text>
                 </Pressable>
             </View>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
-                {FILTERS.map((filter) => (
+            {/* Filter chips */}
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.filtersRow}
+            >
+                {FILTERS.map(f => (
                     <Pressable
-                        key={filter.value}
-                        style={[
-                            styles.filterChip,
-                            selectedFilter === filter.value && styles.filterChipActive,
-                        ]}
-                        onPress={() => setSelectedFilter(filter.value)}
+                        key={f.value}
+                        style={[styles.chip, selectedFilter === f.value && styles.chipActive]}
+                        onPress={() => setSelectedFilter(f.value)}
                     >
-                        <Text
-                            style={[
-                                styles.filterChipText,
-                                selectedFilter === filter.value && styles.filterChipTextActive,
-                            ]}
-                        >
-                            {filter.label}
+                        <Text style={[styles.chipText, selectedFilter === f.value && styles.chipTextActive]}>
+                            {f.label}
                         </Text>
                     </Pressable>
                 ))}
             </ScrollView>
+
+            {/* Divider */}
+            <View style={styles.divider} />
         </>
     );
 
     return (
-        <View style={styles.container}>
+        <SafeAreaView style={styles.safe}>
+            <StatusBar barStyle="light-content" backgroundColor={BG} />
+
             <FlatList
                 data={visibleItems}
-                keyExtractor={(item) => item.id}
-                ListHeaderComponent={renderHeader}
+                keyExtractor={item => item.id}
+                numColumns={2}
+                columnWrapperStyle={styles.row}
+                ListHeaderComponent={ListHeader}
                 ListEmptyComponent={
                     <View style={styles.emptyBox}>
-                        <Text style={styles.emptyText}>
-                            {selectedFilter === 'ALL'
-                                ? 'У вас ще немає речей — додайте першу'
-                                : 'У цій категорії поки немає речей'}
+                        <Text style={styles.emptyEmoji}>👗</Text>
+                        <Text style={styles.emptyTitle}>
+                            {selectedFilter === 'ALL' ? 'Гардероб порожній' : 'Немає речей у цій категорії'}
                         </Text>
+                        <Text style={styles.emptyDesc}>
+                            {selectedFilter === 'ALL'
+                                ? 'Додай першу річ, щоб AI підбирав тобі образи'
+                                : 'Спробуй іншу категорію або додай нову річ'}
+                        </Text>
+                        {selectedFilter === 'ALL' && (
+                            <Pressable
+                                style={styles.emptyAddBtn}
+                                onPress={() => navigation.navigate('AddWardrobeItem')}
+                            >
+                                <Text style={styles.emptyAddBtnText}>Додати річ</Text>
+                            </Pressable>
+                        )}
                     </View>
                 }
                 contentContainerStyle={styles.listContent}
-                contentInsetAdjustmentBehavior="never"
-                automaticallyAdjustContentInsets={false}
+                showsVerticalScrollIndicator={false}
                 renderItem={({ item }) => (
-                    <View style={styles.itemCard}>
-                        <Pressable style={styles.itemMain} onPress={() => handleOpenItem(item)}>
-                            <Image source={{ uri: item.imageUrl }} style={styles.image} />
-                            <View style={styles.itemInfo}>
-                                <Text style={styles.itemName}>{item.name}</Text>
-                                <Text style={styles.itemMeta}>
-                                    {WARDROBE_CATEGORY_LABELS[item.category] ?? item.category}
-                                </Text>
-                                {item.aiAnalysis?.summary ? (
-                                    <Text style={styles.aiText} numberOfLines={2}>
-                                        AI: {item.aiAnalysis.summary}
-                                    </Text>
-                                ) : null}
-                            </View>
-                        </Pressable>
-                        <Pressable
-                            style={[styles.deleteBtn, deletingId === item.id && styles.disabledBtn]}
-                            disabled={deletingId === item.id}
-                            onPress={() => handleDelete(item)}
-                        >
-                            <Text style={styles.deleteBtnText}>
-                                {deletingId === item.id ? 'Deleting...' : 'Delete'}
+                    <Pressable
+                        style={({ pressed }) => [styles.gridCard, pressed && { opacity: 0.75 }]}
+                        onPress={() => { setSelectedItem(item); setAnalysisComment(''); }}
+                    >
+                        <Image source={{ uri: item.imageUrl }} style={styles.gridImage} />
+                        <View style={styles.gridInfo}>
+                            <Text style={styles.gridName} numberOfLines={1}>{item.name}</Text>
+                            <Text style={styles.gridCategory}>
+                                {WARDROBE_CATEGORY_LABELS[item.category] ?? item.category}
                             </Text>
-                        </Pressable>
-                    </View>
+                        </View>
+                    </Pressable>
                 )}
             />
 
+            {/* ── Bottom Tab Bar ── */}
+            <View style={styles.tabBar}>
+                <TabItem icon="🌬️" label="ГОЛОВНА" onPress={() => navigation.navigate('Home')} />
+                <TabItem icon="👔" label="ГАРДЕРОБ" active />
+                <TabItem icon="✦" label="СТИЛЬ" onPress={() => navigation.navigate('Recommendation')} />
+                <TabItem icon="🕐" label="ЖУРНАЛ" onPress={() => navigation.navigate('RecommendationHistory')} />
+                <TabItem icon="👤" label="ПРОФІЛЬ" onPress={() => navigation.navigate('Profile')} />
+            </View>
+
+            {/* ── Item Detail Modal ── */}
             <Modal
                 visible={Boolean(selectedItem)}
                 transparent
@@ -334,259 +296,503 @@ export default function WardrobeScreen({ navigation }: Props) {
             >
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
                     <View style={styles.modalOverlay}>
+                        <Pressable style={styles.modalBackdrop} onPress={() => setSelectedItem(null)} />
                         <KeyboardAvoidingView
                             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                            style={styles.modalKeyboardWrap}
+                            style={styles.modalWrap}
                         >
-                    <View style={styles.modalCard}>
-                        {selectedItem ? (
-                            <>
-                                <Image source={{ uri: selectedItem.imageUrl }} style={styles.modalImage} />
-                                <Text style={styles.modalTitle} numberOfLines={2}>{selectedItem.name}</Text>
-                                <Text style={styles.modalMeta}>
-                                    {WARDROBE_CATEGORY_LABELS[selectedItem.category] ?? selectedItem.category}
-                                </Text>
+                            <View style={styles.modalSheet}>
+                                {/* Handle */}
+                                <View style={styles.modalHandle} />
 
-                                <ScrollView
-                                    style={styles.modalScroll}
-                                    keyboardShouldPersistTaps="handled"
-                                    nestedScrollEnabled
-                                    contentContainerStyle={styles.modalScrollContent}
-                                >
-                                    {selectedItem.aiAnalysis?.summary ? (
-                                        <Text style={styles.modalText}>Опис: {selectedItem.aiAnalysis.summary}</Text>
-                                    ) : (
-                                        <Text style={styles.modalText}>Опис поки недоступний.</Text>
-                                    )}
+                                {selectedItem && (
+                                    <ScrollView
+                                        showsVerticalScrollIndicator={false}
+                                        keyboardShouldPersistTaps="handled"
+                                        contentContainerStyle={styles.modalContent}
+                                    >
+                                        {/* Image */}
+                                        <Image
+                                            source={{ uri: selectedItem.imageUrl }}
+                                            style={styles.modalImage}
+                                        />
 
-                                    {selectedItem.aiAnalysis?.styleTags?.length ? (
-                                        <Text style={styles.modalText}>
-                                            Стиль: {selectedItem.aiAnalysis.styleTags.join(', ')}
-                                        </Text>
-                                    ) : null}
+                                        {/* Header */}
+                                        <View style={styles.modalHeader}>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.modalTitle} numberOfLines={2}>
+                                                    {selectedItem.name}
+                                                </Text>
+                                                <Text style={styles.modalCategory}>
+                                                    {WARDROBE_CATEGORY_LABELS[selectedItem.category] ?? selectedItem.category}
+                                                </Text>
+                                            </View>
+                                            <Pressable
+                                                style={({ pressed }) => [styles.deleteIconBtn, pressed && { opacity: 0.7 }]}
+                                                onPress={() => handleDelete(selectedItem)}
+                                                disabled={deletingId === selectedItem.id}
+                                            >
+                                                <Text style={styles.deleteIconText}>🗑️</Text>
+                                            </Pressable>
+                                        </View>
 
-                                    {selectedItem.aiAnalysis?.seasonTags?.length ? (
-                                        <Text style={styles.modalText}>
-                                            Сезонність: {selectedItem.aiAnalysis.seasonTags.join(', ')}
-                                        </Text>
-                                    ) : null}
+                                        {/* AI Tags */}
+                                        {selectedItem.aiAnalysis && (
+                                            <View style={styles.aiSection}>
+                                                <Text style={styles.aiSectionTitle}>AI АНАЛІЗ</Text>
 
-                                    {typeof selectedItem.aiAnalysis?.warmthLevel === 'number' ? (
-                                        <Text style={styles.modalText}>
-                                            Рівень тепла: {selectedItem.aiAnalysis.warmthLevel}/10
-                                        </Text>
-                                    ) : null}
+                                                {selectedItem.aiAnalysis.summary ? (
+                                                    <Text style={styles.aiSummary}>
+                                                        {selectedItem.aiAnalysis.summary}
+                                                    </Text>
+                                                ) : null}
 
-                                    {selectedItem.aiAnalysis?.colorTags?.length ? (
-                                        <Text style={styles.modalText}>
-                                            Кольори: {selectedItem.aiAnalysis.colorTags.join(', ')}
-                                        </Text>
-                                    ) : null}
+                                                {/* Warmth bar */}
+                                                {typeof selectedItem.aiAnalysis.warmthLevel === 'number' && (
+                                                    <View style={styles.warmthRow}>
+                                                        <Text style={styles.warmthLabel}>Теплота</Text>
+                                                        <View style={styles.warmthTrack}>
+                                                            <View
+                                                                style={[
+                                                                    styles.warmthFill,
+                                                                    { width: `${selectedItem.aiAnalysis.warmthLevel * 10}%` as any },
+                                                                ]}
+                                                            />
+                                                        </View>
+                                                        <Text style={styles.warmthValue}>
+                                                            {selectedItem.aiAnalysis.warmthLevel}/10
+                                                        </Text>
+                                                    </View>
+                                                )}
 
-                                    {selectedItem.aiAnalysis?.recommendationNotes?.length ? (
-                                        <Text style={styles.modalText}>
-                                            Нотатки: {selectedItem.aiAnalysis.recommendationNotes.join('; ')}
-                                        </Text>
-                                    ) : null}
+                                                {/* Tags rows */}
+                                                {selectedItem.aiAnalysis.styleTags?.length ? (
+                                                    <TagRow label="Стиль" tags={selectedItem.aiAnalysis.styleTags} color="#9BD1FF" />
+                                                ) : null}
+                                                {selectedItem.aiAnalysis.seasonTags?.length ? (
+                                                    <TagRow label="Сезон" tags={selectedItem.aiAnalysis.seasonTags} color="#51CF66" />
+                                                ) : null}
+                                                {selectedItem.aiAnalysis.colorTags?.length ? (
+                                                    <TagRow label="Кольори" tags={selectedItem.aiAnalysis.colorTags} color={GOLD} />
+                                                ) : null}
+                                            </View>
+                                        )}
 
-                                    <Text style={styles.modalSectionTitle}>Коментар для AI</Text>
-                                    <TextInput
-                                        style={styles.commentInput}
-                                        value={analysisComment}
-                                        onChangeText={setAnalysisComment}
-                                        placeholder="Наприклад: це спортивна кофта, тонка, носиться поверх футболки"
-                                        placeholderTextColor="#777"
-                                        multiline
-                                        editable={reanalyzingId !== selectedItem.id}
-                                    />
-                                    <Text style={styles.modalHint}>
-                                        Додай уточнення, якщо AI некоректно визначив тип або характеристики.
-                                    </Text>
-                                </ScrollView>
+                                        {/* Comment input */}
+                                        <View style={styles.commentSection}>
+                                            <Text style={styles.commentLabel}>КОМЕНТАР ДЛЯ AI</Text>
+                                            <TextInput
+                                                style={styles.commentInput}
+                                                value={analysisComment}
+                                                onChangeText={setAnalysisComment}
+                                                placeholder="Наприклад: тонка кофта, носиться поверх футболки..."
+                                                placeholderTextColor={MUTED}
+                                                multiline
+                                                editable={reanalyzingId !== selectedItem.id}
+                                            />
+                                            <Text style={styles.commentHint}>
+                                                Уточни, якщо AI неточно визначив тип або характеристики
+                                            </Text>
+                                        </View>
 
-                                <Pressable
-                                    style={[styles.modalSecondaryBtn, reanalyzingId === selectedItem.id && styles.disabledBtn]}
-                                    onPress={handleReanalyze}
-                                    disabled={reanalyzingId === selectedItem.id}
-                                >
-                                    <Text style={styles.modalSecondaryBtnText}>
-                                        {reanalyzingId === selectedItem.id ? 'Оновлення...' : 'Оновити характеристику AI'}
-                                    </Text>
-                                </Pressable>
+                                        {/* Action buttons */}
+                                        <Pressable
+                                            style={({ pressed }) => [
+                                                styles.reanalyzeBtn,
+                                                reanalyzingId === selectedItem.id && { opacity: 0.5 },
+                                                pressed && { opacity: 0.75 },
+                                            ]}
+                                            onPress={handleReanalyze}
+                                            disabled={reanalyzingId === selectedItem.id}
+                                        >
+                                            {reanalyzingId === selectedItem.id
+                                                ? <ActivityIndicator size="small" color={GOLD} />
+                                                : <Text style={styles.reanalyzeBtnText}>✦  Оновити AI аналіз</Text>
+                                            }
+                                        </Pressable>
 
-                                <Pressable style={styles.modalBtn} onPress={() => setSelectedItem(null)}>
-                                    <Text style={styles.modalBtnText}>Закрити</Text>
-                                </Pressable>
-                            </>
-                        ) : null}
-                    </View>
+                                        <Pressable
+                                            style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.85 }]}
+                                            onPress={() => setSelectedItem(null)}
+                                        >
+                                            <Text style={styles.closeBtnText}>Закрити</Text>
+                                        </Pressable>
+                                    </ScrollView>
+                                )}
+                            </View>
                         </KeyboardAvoidingView>
                     </View>
                 </TouchableWithoutFeedback>
             </Modal>
+        </SafeAreaView>
+    );
+}
+
+// ─── Tab item ─────────────────────────────────────────────────────────────────
+function TabItem({ icon, label, active, onPress }: {
+    icon: string; label: string; active?: boolean; onPress?: () => void;
+}) {
+    return (
+        <Pressable
+            style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.6 }]}
+            onPress={onPress}
+        >
+            <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{icon}</Text>
+            <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+        </Pressable>
+    );
+}
+
+// ─── Tag row ──────────────────────────────────────────────────────────────────
+function TagRow({ label, tags, color }: { label: string; tags: string[]; color: string }) {
+    return (
+        <View style={styles.tagRow}>
+            <Text style={styles.tagRowLabel}>{label}</Text>
+            <View style={styles.tagList}>
+                {tags.map((t, i) => (
+                    <View key={i} style={[styles.tag, { borderColor: color + '55', backgroundColor: color + '18' }]}>
+                        <Text style={[styles.tagText, { color }]}>{t}</Text>
+                    </View>
+                ))}
+            </View>
         </View>
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-    container: { flex: 1, padding: 16, backgroundColor: '#0b0b0b' },
-    centerContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#0b0b0b',
-        padding: 16,
-        gap: 12,
+    safe: { flex: 1, backgroundColor: BG },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 },
+    loadingText: { color: GRAY, fontSize: 14 },
+    errorIcon: { fontSize: 40 },
+    errorText: { color: RED, fontSize: 14, textAlign: 'center' },
+    retryBtn: {
+        backgroundColor: GOLD, borderRadius: 12,
+        paddingHorizontal: 24, paddingVertical: 12,
     },
-    headerRow: {
+    retryBtnText: { color: '#000', fontWeight: '700', fontSize: 14 },
+
+    // ── PAGE HEADER ──
+    pageHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 12,
+        paddingHorizontal: GRID_PAD,
+        paddingTop: Platform.OS === 'android' ? 20 : 10,
+        marginBottom: 20,
     },
-    title: { color: '#fff', fontSize: 24, fontWeight: '700' },
-    filtersRow: {
-        gap: 8,
-        paddingBottom: 6,
-        alignItems: 'center',
-        marginBottom: 2,
+    pageTitle: {
+        color: GOLD,
+        fontSize: 32,
+        fontWeight: '700',
+        letterSpacing: -0.8,
     },
-    filterChip: {
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 999,
-        paddingHorizontal: 16,
-        height: 42,
-        backgroundColor: '#121212',
-        marginRight: 8,
-        alignSelf: 'flex-start',
+    addBtn: {
+        width: 46,
+        height: 46,
+        borderRadius: 14,
+        backgroundColor: GOLD,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    filterChipActive: {
-        backgroundColor: '#fff',
-        borderColor: '#fff',
+    addBtnText: { color: '#000', fontSize: 22, fontWeight: '700', lineHeight: 26 },
+
+    // ── FILTERS ──
+    filtersRow: {
+        paddingHorizontal: GRID_PAD,
+        gap: 8,
+        paddingBottom: 4,
     },
-    filterChipText: { color: '#fff', fontWeight: '700', fontSize: 12, textAlign: 'center' },
-    filterChipTextActive: { color: '#000' },
-    addBtn: {
+    chip: {
+        height: 38,
+        paddingHorizontal: 16,
+        borderRadius: 999,
         borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 10,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-    },
-    addBtnText: { color: '#fff', fontWeight: '700' },
-    listContent: { gap: 10, paddingBottom: 16 },
-    itemCard: {
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 14,
-        backgroundColor: '#121212',
-        padding: 10,
-        flexDirection: 'row',
+        borderColor: BORDER,
+        backgroundColor: CARD,
         alignItems: 'center',
-        gap: 10,
+        justifyContent: 'center',
     },
-    itemMain: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
+    chipActive: {
+        backgroundColor: GOLD,
+        borderColor: GOLD,
     },
-    image: {
-        width: 64,
-        height: 64,
-        borderRadius: 10,
-        backgroundColor: '#1c1c1c',
+    chipText: {
+        color: GRAY,
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 0.8,
     },
-    itemInfo: { flex: 1, gap: 4 },
-    itemName: { color: '#fff', fontWeight: '700', fontSize: 16 },
-    itemMeta: { color: '#aaa', fontSize: 12 },
-    aiText: { color: '#9bd1ff', fontSize: 12, lineHeight: 16 },
-    deleteBtn: {
+    chipTextActive: {
+        color: '#000',
+    },
+
+    divider: {
+        height: 1,
+        backgroundColor: BORDER,
+        marginHorizontal: GRID_PAD,
+        marginTop: 16,
+        marginBottom: 16,
+    },
+
+    // ── GRID ──
+    listContent: {
+        paddingHorizontal: GRID_PAD,
+        paddingBottom: 24,
+    },
+    row: {
+        gap: GRID_GAP,
+        marginBottom: GRID_GAP,
+    },
+    gridCard: {
+        width: CARD_W,
+        backgroundColor: CARD,
+        borderRadius: 20,
+        overflow: 'hidden',
         borderWidth: 1,
-        borderColor: '#ff6b6b',
-        borderRadius: 10,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
+        borderColor: BORDER,
     },
-    deleteBtnText: { color: '#ff6b6b', fontWeight: '700' },
-    disabledBtn: { opacity: 0.6 },
+    gridImage: {
+        width: CARD_W,
+        height: CARD_W,
+        backgroundColor: CARD2,
+    },
+    gridInfo: {
+        padding: 12,
+        gap: 3,
+    },
+    gridName: {
+        color: WHITE,
+        fontSize: 14,
+        fontWeight: '700',
+        letterSpacing: -0.2,
+    },
+    gridCategory: {
+        color: GOLD,
+        fontSize: 10,
+        fontWeight: '600',
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+    },
+
+    // ── EMPTY STATE ──
     emptyBox: {
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
+        alignItems: 'center',
+        paddingVertical: 48,
+        gap: 10,
+    },
+    emptyEmoji: { fontSize: 52 },
+    emptyTitle: { color: WHITE, fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+    emptyDesc: { color: MUTED, fontSize: 14, textAlign: 'center', lineHeight: 20, paddingHorizontal: 24 },
+    emptyAddBtn: {
+        marginTop: 8,
+        backgroundColor: GOLD,
         borderRadius: 14,
-        backgroundColor: '#121212',
-        padding: 16,
+        paddingHorizontal: 24,
+        paddingVertical: 12,
     },
-    emptyText: { color: '#aaa' },
-    errorText: { color: '#ff6b6b', textAlign: 'center' },
-    actionBtn: {
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
+    emptyAddBtnText: { color: '#000', fontWeight: '700', fontSize: 14 },
+
+    // ── BOTTOM TAB BAR ──
+    tabBar: {
+        flexDirection: 'row',
+        backgroundColor: '#0F0F0F',
+        borderTopWidth: 1,
+        borderTopColor: BORDER,
+        paddingTop: 10,
+        paddingBottom: Platform.OS === 'android' ? 12 : 6,
+        paddingHorizontal: 6,
     },
-    actionBtnText: { color: '#000', fontWeight: '700' },
+    tabItem: { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 4 },
+    tabIcon: { fontSize: 20, opacity: 0.4 },
+    tabIconActive: { opacity: 1 },
+    tabLabel: { color: MUTED, fontSize: 9, fontWeight: '600', letterSpacing: 0.8 },
+    tabLabelActive: { color: GOLD },
+
+    // ── MODAL ──
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.65)',
         justifyContent: 'flex-end',
     },
-    modalKeyboardWrap: {
-        flex: 1,
+    modalBackdrop: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0,0,0,0.72)',
+    },
+    modalWrap: {
         justifyContent: 'flex-end',
     },
-    modalCard: {
-        backgroundColor: '#121212',
-        borderTopLeftRadius: 16,
-        borderTopRightRadius: 16,
-        padding: 16,
-        maxHeight: '82%',
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
+    modalSheet: {
+        backgroundColor: '#111',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        maxHeight: '88%',
+        borderTopWidth: 1,
+        borderColor: BORDER,
+        paddingTop: 12,
+    },
+    modalHandle: {
+        width: 38,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: BORDER,
+        alignSelf: 'center',
+        marginBottom: 16,
+    },
+    modalContent: {
+        paddingHorizontal: 20,
+        paddingBottom: 40,
+        gap: 16,
     },
     modalImage: {
         width: '100%',
-        height: 220,
-        borderRadius: 12,
-        backgroundColor: '#1c1c1c',
-        marginBottom: 12,
+        height: 260,
+        borderRadius: 18,
+        backgroundColor: CARD2,
     },
-    modalTitle: { color: '#fff', fontSize: 22, fontWeight: '700' },
-    modalMeta: { color: '#9bd1ff', fontSize: 13, marginTop: 4, marginBottom: 10 },
-    modalScroll: { maxHeight: 260 },
-    modalScrollContent: { paddingBottom: 4 },
-    modalText: { color: '#ddd', fontSize: 14, lineHeight: 20, marginBottom: 8 },
-    modalSectionTitle: { color: '#fff', fontSize: 15, fontWeight: '700', marginTop: 8, marginBottom: 6 },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+    },
+    modalTitle: {
+        color: WHITE,
+        fontSize: 22,
+        fontWeight: '700',
+        letterSpacing: -0.4,
+        lineHeight: 28,
+    },
+    modalCategory: {
+        color: GOLD,
+        fontSize: 11,
+        fontWeight: '600',
+        letterSpacing: 1.2,
+        textTransform: 'uppercase',
+        marginTop: 4,
+    },
+    deleteIconBtn: {
+        width: 42,
+        height: 42,
+        borderRadius: 12,
+        backgroundColor: RED + '18',
+        borderWidth: 1,
+        borderColor: RED + '44',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: 2,
+    },
+    deleteIconText: { fontSize: 18 },
+
+    // ── AI SECTION ──
+    aiSection: {
+        backgroundColor: CARD,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: BORDER,
+        padding: 16,
+        gap: 12,
+    },
+    aiSectionTitle: {
+        color: GOLD,
+        fontSize: 10,
+        fontWeight: '600',
+        letterSpacing: 1.5,
+    },
+    aiSummary: {
+        color: GRAY,
+        fontSize: 13,
+        lineHeight: 18,
+    },
+    warmthRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    warmthLabel: {
+        color: GRAY,
+        fontSize: 12,
+        width: 54,
+    },
+    warmthTrack: {
+        flex: 1,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: BORDER,
+        overflow: 'hidden',
+    },
+    warmthFill: {
+        height: '100%',
+        borderRadius: 2,
+        backgroundColor: GOLD,
+    },
+    warmthValue: {
+        color: GRAY,
+        fontSize: 11,
+        width: 32,
+        textAlign: 'right',
+    },
+    tagRow: { gap: 6 },
+    tagRowLabel: { color: MUTED, fontSize: 10, fontWeight: '600', letterSpacing: 1 },
+    tagList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    tag: {
+        borderWidth: 1,
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+    },
+    tagText: { fontSize: 11, fontWeight: '600' },
+
+    // ── COMMENT ──
+    commentSection: { gap: 8 },
+    commentLabel: {
+        color: MUTED,
+        fontSize: 10,
+        fontWeight: '600',
+        letterSpacing: 1.5,
+    },
     commentInput: {
+        backgroundColor: CARD,
         borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 12,
-        padding: 10,
-        color: '#fff',
-        backgroundColor: '#0f0f0f',
-        minHeight: 74,
+        borderColor: BORDER,
+        borderRadius: 14,
+        padding: 14,
+        color: WHITE,
+        fontSize: 14,
+        minHeight: 80,
         textAlignVertical: 'top',
+        lineHeight: 20,
     },
-    modalHint: { color: '#9aa0a6', fontSize: 12, marginTop: 6, lineHeight: 16 },
-    modalSecondaryBtn: {
-        marginTop: 12,
+    commentHint: {
+        color: MUTED,
+        fontSize: 12,
+        lineHeight: 16,
+    },
+
+    // ── BUTTONS ──
+    reanalyzeBtn: {
         borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 12,
+        borderColor: GOLD + '66',
+        backgroundColor: GOLD + '18',
+        borderRadius: 14,
+        paddingVertical: 14,
         alignItems: 'center',
-        paddingVertical: 12,
-        backgroundColor: '#0f0f0f',
+        justifyContent: 'center',
+        minHeight: 50,
     },
-    modalSecondaryBtnText: { color: '#fff', fontWeight: '700' },
-    modalBtn: {
-        marginTop: 10,
-        backgroundColor: '#fff',
-        borderRadius: 12,
+    reanalyzeBtnText: {
+        color: GOLD,
+        fontWeight: '700',
+        fontSize: 14,
+        letterSpacing: 0.2,
+    },
+    closeBtn: {
+        backgroundColor: WHITE,
+        borderRadius: 14,
+        paddingVertical: 14,
         alignItems: 'center',
-        paddingVertical: 12,
     },
-    modalBtnText: { color: '#000', fontWeight: '700' },
+    closeBtnText: {
+        color: '#000',
+        fontWeight: '700',
+        fontSize: 15,
+    },
 });
