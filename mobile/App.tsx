@@ -52,9 +52,8 @@ function AppStackNavigator() {
   return (
     <AppStack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: '#0b0b0b' },
-        headerTintColor: '#fff',
-        contentStyle: { backgroundColor: '#0b0b0b' },
+        headerShown: false,
+        contentStyle: { backgroundColor: '#0D0D0D' },
       }}
     >
       <AppStack.Screen name="Home" component={HomeScreen} />
