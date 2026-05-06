@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWardrobeDto } from './dto/create-wardrobe.dto';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { AiService, AiItemAnalysis } from '../ai/ai.service';
+import { BgRemovalService } from './bg-removal.service';
 
 const WARDROBE_CATEGORIES = ['OUTERWEAR', 'TOPS', 'BOTTOMS', 'SHOES', 'ACCESSORIES'] as const;
 type WardrobeCategory = (typeof WARDROBE_CATEGORIES)[number];
@@ -13,6 +14,7 @@ export class WardrobeService {
     constructor(
         private prisma: PrismaService,
         private readonly aiService: AiService,
+        private readonly bgRemovalService: BgRemovalService,
     ) { }
 
     async createItem(
@@ -69,6 +71,8 @@ export class WardrobeService {
             existingNames,
         );
 
+        const imageUrlNoBg = await this.bgRemovalService.removeBackground(imagePath);
+
         return db.wardrobeItem.create({
             data: {
                 userId,
@@ -76,6 +80,7 @@ export class WardrobeService {
                 category: resolvedCategory,
                 tags: parsedTags,
                 imageUrl,
+                imageUrlNoBg,
                 aiAnalysis,
                 aiAnalyzedAt: new Date(),
             },
@@ -92,11 +97,64 @@ export class WardrobeService {
                 category: true,
                 tags: true,
                 imageUrl: true,
+                imageUrlNoBg: true,
                 aiAnalysis: true,
                 aiAnalyzedAt: true,
                 createdAt: true,
             },
             orderBy: { createdAt: 'desc' },
+        });
+    }
+
+    async processExistingBackgrounds(userId: string): Promise<{ processed: number; skipped: number; failed: number }> {
+        const db = this.prisma as any;
+
+        if (!this.bgRemovalService.isEnabled) {
+            return { processed: 0, skipped: 0, failed: 0 };
+        }
+
+        const items = await db.wardrobeItem.findMany({
+            where: { userId, imageUrlNoBg: null },
+            select: { id: true, imageUrl: true },
+        });
+
+        let processed = 0;
+        let failed = 0;
+
+        for (const item of items) {
+            const filename = item.imageUrl.split('/').pop();
+            if (!filename) { failed++; continue; }
+
+            const imagePath = join(process.cwd(), 'uploads', filename);
+            const noBgUrl = await this.bgRemovalService.removeBackground(imagePath);
+
+            if (noBgUrl) {
+                await db.wardrobeItem.update({
+                    where: { id: item.id },
+                    data: { imageUrlNoBg: noBgUrl },
+                });
+                processed++;
+            } else {
+                failed++;
+            }
+        }
+
+        return { processed, skipped: 0, failed };
+    }
+
+    async updateItem(userId: string, itemId: string, dto: { warmthLevel?: number }) {
+        const db = this.prisma as any;
+        const item = await db.wardrobeItem.findFirst({ where: { id: itemId, userId } });
+        if (!item) throw new NotFoundException('Wardrobe item not found');
+
+        const updatedAnalysis = {
+            ...(item.aiAnalysis ?? {}),
+            ...(typeof dto.warmthLevel === 'number' ? { warmthLevel: dto.warmthLevel } : {}),
+        };
+
+        return db.wardrobeItem.update({
+            where: { id: itemId },
+            data: { aiAnalysis: updatedAnalysis },
         });
     }
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -13,18 +13,18 @@ import {
     TextInput,
     KeyboardAvoidingView,
     Platform,
-    TouchableWithoutFeedback,
-    Keyboard,
     Dimensions,
     SafeAreaView,
     StatusBar,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import {
     deleteWardrobeItem,
     fetchWardrobeItems,
     reanalyzeWardrobeItem,
+    updateWardrobeItemWarmth,
     WardrobeItem,
     WardrobeCategory,
     WARDROBE_CATEGORY_LABELS,
@@ -70,6 +70,9 @@ export default function WardrobeScreen({ navigation }: Props) {
     const [selectedItem, setSelectedItem] = useState<WardrobeItem | null>(null);
     const [analysisComment, setAnalysisComment] = useState('');
     const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
+    const [localWarmth, setLocalWarmth] = useState<number | null>(null);
+    const [warmthSaved, setWarmthSaved] = useState(false);
+    const warmthDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Load items ──
     const loadItems = useCallback(async () => {
@@ -164,6 +167,26 @@ export default function WardrobeScreen({ navigation }: Props) {
             setReanalyzingId(null);
         }
     };
+
+    // ── Warmth change ──
+    const handleWarmthChange = useCallback((value: number) => {
+        if (!selectedItem || !accessToken) return;
+        setLocalWarmth(value);
+        setWarmthSaved(false);
+        if (warmthDebounce.current) clearTimeout(warmthDebounce.current);
+        warmthDebounce.current = setTimeout(async () => {
+            try {
+                await updateWardrobeItemWarmth(accessToken, selectedItem.id, value);
+                setItems(prev => prev.map(it =>
+                    it.id === selectedItem.id
+                        ? { ...it, aiAnalysis: { ...(it.aiAnalysis ?? {}), warmthLevel: value } }
+                        : it,
+                ));
+                setWarmthSaved(true);
+                setTimeout(() => setWarmthSaved(false), 1500);
+            } catch { /* silent */ }
+        }, 600);
+    }, [selectedItem, accessToken]);
 
     // ── Loading / Error states ──
     if (loading) {
@@ -265,7 +288,12 @@ export default function WardrobeScreen({ navigation }: Props) {
                 renderItem={({ item }) => (
                     <Pressable
                         style={({ pressed }) => [styles.gridCard, pressed && { opacity: 0.75 }]}
-                        onPress={() => { setSelectedItem(item); setAnalysisComment(''); }}
+                        onPress={() => {
+                        setSelectedItem(item);
+                        setAnalysisComment('');
+                        setLocalWarmth(item.aiAnalysis?.warmthLevel ?? null);
+                        setWarmthSaved(false);
+                    }}
                     >
                         <Image source={{ uri: item.imageUrl }} style={styles.gridImage} />
                         <View style={styles.gridInfo}>
@@ -280,11 +308,11 @@ export default function WardrobeScreen({ navigation }: Props) {
 
             {/* ── Bottom Tab Bar ── */}
             <View style={styles.tabBar}>
-                <TabItem icon="🌬️" label="ГОЛОВНА" onPress={() => navigation.navigate('Home')} />
-                <TabItem icon="👔" label="ГАРДЕРОБ" active />
-                <TabItem icon="✦" label="СТИЛЬ" onPress={() => navigation.navigate('Recommendation')} />
-                <TabItem icon="🕐" label="ЖУРНАЛ" onPress={() => navigation.navigate('RecommendationHistory')} />
-                <TabItem icon="👤" label="ПРОФІЛЬ" onPress={() => navigation.navigate('Profile')} />
+                <TabItem iconName="home-outline"    label="ГОЛОВНА"  onPress={() => navigation.navigate('Home')} />
+                <TabItem iconName="shirt"            label="ГАРДЕРОБ" active />
+                <TabItem iconName="diamond-outline"  label="СТИЛЬ"    onPress={() => navigation.navigate('Recommendation')} />
+                <TabItem iconName="time-outline"     label="ЖУРНАЛ"   onPress={() => navigation.navigate('RecommendationHistory')} />
+                <TabItem iconName="person-outline"   label="ПРОФІЛЬ"  onPress={() => navigation.navigate('Profile')} />
             </View>
 
             {/* ── Item Detail Modal ── */}
@@ -294,23 +322,23 @@ export default function WardrobeScreen({ navigation }: Props) {
                 animationType="slide"
                 onRequestClose={() => setSelectedItem(null)}
             >
-                <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-                    <View style={styles.modalOverlay}>
-                        <Pressable style={styles.modalBackdrop} onPress={() => setSelectedItem(null)} />
-                        <KeyboardAvoidingView
-                            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                            style={styles.modalWrap}
-                        >
-                            <View style={styles.modalSheet}>
-                                {/* Handle */}
-                                <View style={styles.modalHandle} />
+                <View style={styles.modalOverlay}>
+                    <Pressable style={styles.modalBackdrop} onPress={() => setSelectedItem(null)} />
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                        style={styles.modalWrap}
+                    >
+                        <View style={styles.modalSheet}>
+                            {/* Handle */}
+                            <View style={styles.modalHandle} />
 
-                                {selectedItem && (
-                                    <ScrollView
-                                        showsVerticalScrollIndicator={false}
-                                        keyboardShouldPersistTaps="handled"
-                                        contentContainerStyle={styles.modalContent}
-                                    >
+                            {selectedItem && (
+                                <ScrollView
+                                    showsVerticalScrollIndicator={false}
+                                    keyboardShouldPersistTaps="handled"
+                                    contentContainerStyle={styles.modalContent}
+                                    bounces={true}
+                                >
                                         {/* Image */}
                                         <Image
                                             source={{ uri: selectedItem.imageUrl }}
@@ -347,20 +375,28 @@ export default function WardrobeScreen({ navigation }: Props) {
                                                     </Text>
                                                 ) : null}
 
-                                                {/* Warmth bar */}
-                                                {typeof selectedItem.aiAnalysis.warmthLevel === 'number' && (
+                                                {/* Warmth editor */}
+                                                {typeof (localWarmth ?? selectedItem.aiAnalysis.warmthLevel) === 'number' && (
                                                     <View style={styles.warmthRow}>
                                                         <Text style={styles.warmthLabel}>Теплота</Text>
-                                                        <View style={styles.warmthTrack}>
-                                                            <View
-                                                                style={[
-                                                                    styles.warmthFill,
-                                                                    { width: `${selectedItem.aiAnalysis.warmthLevel * 10}%` as any },
-                                                                ]}
-                                                            />
+                                                        <View style={styles.warmthSegments}>
+                                                            {Array.from({ length: 10 }, (_, i) => {
+                                                                const current = localWarmth ?? selectedItem.aiAnalysis!.warmthLevel ?? 0;
+                                                                return (
+                                                                    <Pressable
+                                                                        key={i}
+                                                                        style={[
+                                                                            styles.warmthSegment,
+                                                                            i < current ? styles.warmthSegmentFilled : null,
+                                                                        ]}
+                                                                        onPress={() => handleWarmthChange(i + 1)}
+                                                                        hitSlop={4}
+                                                                    />
+                                                                );
+                                                            })}
                                                         </View>
                                                         <Text style={styles.warmthValue}>
-                                                            {selectedItem.aiAnalysis.warmthLevel}/10
+                                                            {warmthSaved ? '✓' : `${localWarmth ?? selectedItem.aiAnalysis.warmthLevel}/10`}
                                                         </Text>
                                                     </View>
                                                 )}
@@ -422,22 +458,21 @@ export default function WardrobeScreen({ navigation }: Props) {
                             </View>
                         </KeyboardAvoidingView>
                     </View>
-                </TouchableWithoutFeedback>
             </Modal>
         </SafeAreaView>
     );
 }
 
 // ─── Tab item ─────────────────────────────────────────────────────────────────
-function TabItem({ icon, label, active, onPress }: {
-    icon: string; label: string; active?: boolean; onPress?: () => void;
+function TabItem({ iconName, label, active, onPress }: {
+    iconName: string; label: string; active?: boolean; onPress?: () => void;
 }) {
     return (
         <Pressable
             style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.6 }]}
             onPress={onPress}
         >
-            <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{icon}</Text>
+            <Ionicons name={iconName as any} size={22} color={active ? '#C9961A' : '#555'} />
             <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
         </Pressable>
     );
@@ -712,16 +747,19 @@ const styles = StyleSheet.create({
         fontSize: 12,
         width: 54,
     },
-    warmthTrack: {
+    warmthSegments: {
         flex: 1,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: BORDER,
-        overflow: 'hidden',
+        flexDirection: 'row',
+        gap: 3,
+        alignItems: 'center',
     },
-    warmthFill: {
-        height: '100%',
-        borderRadius: 2,
+    warmthSegment: {
+        flex: 1,
+        height: 18,
+        borderRadius: 4,
+        backgroundColor: BORDER,
+    },
+    warmthSegmentFilled: {
         backgroundColor: GOLD,
     },
     warmthValue: {

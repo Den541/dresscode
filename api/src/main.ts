@@ -23,6 +23,11 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new HttpExceptionFilter());
 
+  // Increase timeout for AI generation (GPT-4o Vision + DALL-E 3 can take 30-60s)
+  const server = app.getHttpServer();
+  server.timeout = 120000;
+  server.keepAliveTimeout = 120000;
+
   await app.listen(3000, '0.0.0.0');
 }
 void bootstrap();

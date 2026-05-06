@@ -10,11 +10,14 @@ import {
   StatusBar,
   SafeAreaView,
   Platform,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../config';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
+import { fetchRecommendationHistory } from '../utils/ai';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const GOLD   = '#C9961A';
@@ -44,6 +47,7 @@ type RecentLook = {
   city: string;
   createdAt: string;
   summary: string[];
+  outfitImageUrl: string | null;
   userRating: number | null;
 };
 
@@ -140,9 +144,8 @@ export default function HomeScreen({ navigation }: Props) {
       .then(d => Array.isArray(d) && setWardrobeCount(d.length))
       .catch(() => {});
 
-    fetchWithTimeout(`${API_BASE_URL}/recommendations/history?limit=3`, { headers }, 8000)
-      .then(r => r.json())
-      .then(d => Array.isArray(d) && setRecentLooks(d))
+    fetchRecommendationHistory(accessToken, 3)
+      .then(d => setRecentLooks(d))
       .catch(() => {});
   }, [accessToken]);
 
@@ -350,9 +353,15 @@ export default function HomeScreen({ navigation }: Props) {
                   onPress={() => navigation.navigate('RecommendationHistoryDetails', { id: look.id })}
                 >
                   <View style={styles.lookThumb}>
-                    <Text style={styles.lookThumbEmoji}>
-                      {getWeatherEmoji(look.summary?.[0] ?? '')}
-                    </Text>
+                    {look.outfitImageUrl ? (
+                      <Image
+                        source={{ uri: look.outfitImageUrl }}
+                        style={styles.lookThumbImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text style={styles.lookThumbEmoji}>✦</Text>
+                    )}
                   </View>
                   <View style={styles.lookInfo}>
                     <Text style={styles.lookTitle} numberOfLines={1}>
@@ -374,34 +383,23 @@ export default function HomeScreen({ navigation }: Props) {
 
       {/* ══ BOTTOM TAB BAR ══════════════════════════════════════ */}
       <View style={styles.tabBar}>
-        <TabItem icon="🌬️" label="ГОЛОВНА"  active onPress={() => {}} />
-        <TabItem icon="👔"  label="ГАРДЕРОБ" onPress={() => navigation.navigate('Wardrobe')} />
-        <TabItem icon="✦"   label="СТИЛЬ"    onPress={goToOutfit} />
-        <TabItem icon="🕐"  label="ЖУРНАЛ"   onPress={() => navigation.navigate('RecommendationHistory')} />
-        <TabItem icon="👤"  label="ПРОФІЛЬ"  onPress={() => navigation.navigate('Profile')} />
+        <TabItem iconName="home"            label="ГОЛОВНА"  active onPress={() => {}} />
+        <TabItem iconName="shirt-outline"   label="ГАРДЕРОБ" onPress={() => navigation.navigate('Wardrobe')} />
+        <TabItem iconName="diamond-outline" label="СТИЛЬ"    onPress={goToOutfit} />
+        <TabItem iconName="time-outline"    label="ЖУРНАЛ"   onPress={() => navigation.navigate('RecommendationHistory')} />
+        <TabItem iconName="person-outline"  label="ПРОФІЛЬ"  onPress={() => navigation.navigate('Profile')} />
       </View>
     </SafeAreaView>
   );
 }
 
 // ─── Tab item ─────────────────────────────────────────────────────────────────
-function TabItem({
-  icon,
-  label,
-  active,
-  onPress,
-}: {
-  icon: string;
-  label: string;
-  active?: boolean;
-  onPress: () => void;
+function TabItem({ iconName, label, active, onPress }: {
+  iconName: string; label: string; active?: boolean; onPress: () => void;
 }) {
   return (
-    <Pressable
-      style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.6 }]}
-      onPress={onPress}
-    >
-      <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{icon}</Text>
+    <Pressable style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.6 }]} onPress={onPress}>
+      <Ionicons name={iconName as any} size={22} color={active ? GOLD : '#555'} />
       <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
     </Pressable>
   );
@@ -721,9 +719,16 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  lookThumbImage: {
+    width: 48,
+    height: 48,
   },
   lookThumbEmoji: {
     fontSize: 22,
+    color: GOLD,
+    opacity: 0.5,
   },
   lookInfo: {
     flex: 1,

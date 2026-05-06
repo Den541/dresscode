@@ -3,6 +3,7 @@ import {
     Post,
     Get,
     Delete,
+    Patch,
     Param,
     UseGuards,
     UseInterceptors,
@@ -19,6 +20,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import { WardrobeService } from './wardrobe.service';
 import { CreateWardrobeDto } from './dto/create-wardrobe.dto';
+import { UpdateWardrobeDto } from './dto/update-wardrobe.dto';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -73,6 +75,22 @@ export class WardrobeController {
     @Get()
     async getItems(@CurrentUser() user: any) {
         return this.wardrobeService.getUserItems(user.userId);
+    }
+
+    @Post('process-backgrounds')
+    async processBackgrounds(@CurrentUser() user: any) {
+        return this.wardrobeService.processExistingBackgrounds(user.userId);
+    }
+
+    @Patch(':id')
+    async updateItem(
+        @Param('id') itemId: string,
+        @CurrentUser() user: any,
+        @Body() dto: UpdateWardrobeDto,
+    ) {
+        const updated = await this.wardrobeService.updateItem(user.userId, itemId, dto);
+        if (!updated) throw new NotFoundException('Wardrobe item not found');
+        return updated;
     }
 
     @Delete(':id')

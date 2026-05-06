@@ -1,12 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiService } from '../ai/ai.service';
 import { GenerateRecommendationV2Dto } from './dto/generate-recommendation-v2.dto';
+import { join } from 'path';
 
 type WardrobeCategory = 'OUTERWEAR' | 'TOPS' | 'BOTTOMS' | 'SHOES' | 'ACCESSORIES';
 
 @Injectable()
 export class RecommendationsService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly aiService: AiService,
+    ) { }
 
     async generate(userId: string, dto: GenerateRecommendationV2Dto) {
         const db = this.prisma as any;
@@ -53,6 +58,8 @@ export class RecommendationsService {
                         name: true,
                         category: true,
                         imageUrl: true,
+                        imageUrlNoBg: true,
+                        aiAnalysis: true,
                     },
                     orderBy: { createdAt: 'desc' },
                 },
@@ -85,9 +92,15 @@ export class RecommendationsService {
             preferencesSnapshot.coldSensitivity,
             feedbackProfile,
         );
+        const adjustedTemperature =
+            (weatherSnapshot.feelsLike ?? weatherSnapshot.temperature ?? 18) -
+            (preferencesSnapshot.coldSensitivity ?? 0) -
+            (feedbackProfile?.prefersWarmer ? 2 : feedbackProfile?.prefersLighter ? -2 : 0);
+
         const { fromWardrobeItems, selectedCategories } = this.pickWardrobeItems(
             profile.wardrobeItems,
             requiredCategories,
+            adjustedTemperature,
         );
 
         const missingCategories = requiredCategories.filter((category) => !selectedCategories.has(category));
@@ -110,6 +123,20 @@ export class RecommendationsService {
             recentComments,
         );
 
+        // Generate outfit image via GPT-4o Vision → DALL-E 3 (non-blocking on failure)
+        let outfitImageUrl: string | null = null;
+        if (fromWardrobeItems.length > 0) {
+            const imageItems = fromWardrobeItems
+                .filter((i) => i.imageUrl)
+                .map((i) => ({
+                    name: i.name,
+                    category: i.category,
+                    imagePath: join(process.cwd(), 'uploads', i.imageUrl.split('/').pop()!),
+                }));
+
+            outfitImageUrl = await this.aiService.generateOutfitImage(imageItems).catch(() => null);
+        }
+
         const saved = await db.recommendation.create({
             data: {
                 userId,
@@ -121,6 +148,7 @@ export class RecommendationsService {
                 missingItems,
                 reasons,
                 selectedWardrobeItemIds: fromWardrobeItems.map((item) => item.id),
+                outfitImageUrl,
                 userRating: null,
                 feedbackAt: null,
             },
@@ -136,6 +164,7 @@ export class RecommendationsService {
             fromWardrobe: fromWardrobeItems,
             missing: missingItems,
             reasons,
+            outfitImageUrl,
             userComment: null,
             userRating: null,
             saved: true,
@@ -153,6 +182,7 @@ export class RecommendationsService {
                 city: true,
                 createdAt: true,
                 recommendedItems: true,
+                outfitImageUrl: true,
                 userComment: true,
                 userRating: true,
             },
@@ -163,6 +193,7 @@ export class RecommendationsService {
             city: row.city,
             createdAt: row.createdAt,
             summary: this.normalizeStringArray(row.recommendedItems).slice(0, 2),
+            outfitImageUrl: typeof row.outfitImageUrl === 'string' ? row.outfitImageUrl : null,
             hasComment: typeof row.userComment === 'string' && row.userComment.trim().length > 0,
             userRating: typeof row.userRating === 'number' ? row.userRating : null,
         }));
@@ -185,6 +216,7 @@ export class RecommendationsService {
                 fromWardrobeItems: true,
                 missingItems: true,
                 reasons: true,
+                outfitImageUrl: true,
                 userComment: true,
                 userRating: true,
             },
@@ -204,9 +236,31 @@ export class RecommendationsService {
             fromWardrobe: this.normalizeObjectArray(row.fromWardrobeItems),
             missing: this.normalizeObjectArray(row.missingItems),
             reasons: this.normalizeStringArray(row.reasons),
+            outfitImageUrl: typeof row.outfitImageUrl === 'string' ? row.outfitImageUrl : null,
             userComment: typeof row.userComment === 'string' ? row.userComment : null,
             userRating: typeof row.userRating === 'number' ? row.userRating : null,
         };
+    }
+
+    async deleteOne(userId: string, recommendationId: string) {
+        const db = this.prisma as any;
+        const row = await db.recommendation.findFirst({
+            where: { id: recommendationId, userId },
+            select: { id: true },
+        });
+
+        if (!row) {
+            throw new NotFoundException('Recommendation history record not found');
+        }
+
+        await db.recommendation.delete({ where: { id: recommendationId } });
+        return { deleted: 1 };
+    }
+
+    async clearHistory(userId: string) {
+        const db = this.prisma as any;
+        const result = await db.recommendation.deleteMany({ where: { userId } });
+        return { deleted: result.count };
     }
 
     async saveComment(userId: string, recommendationId: string, comment: string, rating?: number) {
@@ -293,10 +347,30 @@ export class RecommendationsService {
             name: string;
             category: WardrobeCategory;
             imageUrl: string;
+            imageUrlNoBg?: string | null;
+            aiAnalysis?: unknown;
         }>,
         requiredCategories: WardrobeCategory[],
+        adjustedTemperature: number,
     ) {
-        const byCategory = new Map<WardrobeCategory, Array<{ id: string; name: string; category: WardrobeCategory; imageUrl: string }>>();
+        type ItemWithNoBg = { id: string; name: string; category: WardrobeCategory; imageUrl: string; imageUrlNoBg?: string | null };
+
+        // idealWarmth: -10°C→10, 0°C→8, 10°C→6, 20°C→4, 30°C→2
+        const idealWarmth = Math.max(1, Math.min(10, 10 - (adjustedTemperature + 10) * 0.2));
+
+        const fallbackWarmth: Record<WardrobeCategory, number> = {
+            OUTERWEAR: 8, TOPS: 4, BOTTOMS: 4, SHOES: 5, ACCESSORIES: 3,
+        };
+
+        const getWarmth = (item: { category: WardrobeCategory; aiAnalysis?: unknown }): number => {
+            const analysis = item.aiAnalysis as Record<string, unknown> | null | undefined;
+            const level = analysis?.warmthLevel;
+            return typeof level === 'number' && level >= 0 && level <= 10
+                ? level
+                : fallbackWarmth[item.category] ?? 4;
+        };
+
+        const byCategory = new Map<WardrobeCategory, Array<ItemWithNoBg>>();
 
         for (const item of wardrobeItems) {
             const existing = byCategory.get(item.category) ?? [];
@@ -304,16 +378,19 @@ export class RecommendationsService {
             byCategory.set(item.category, existing);
         }
 
-        const fromWardrobeItems: Array<{ id: string; name: string; category: WardrobeCategory; imageUrl: string }> = [];
+        const fromWardrobeItems: Array<ItemWithNoBg> = [];
         const selectedCategories = new Set<WardrobeCategory>();
 
         for (const category of requiredCategories) {
-            const candidate = byCategory.get(category)?.[0];
-            if (!candidate) {
-                continue;
-            }
+            const candidates = byCategory.get(category);
+            if (!candidates?.length) continue;
 
-            fromWardrobeItems.push(candidate);
+            // Sort by closeness to idealWarmth — pick the best-matched item
+            const best = candidates.slice().sort(
+                (a, b) => Math.abs(getWarmth(a) - idealWarmth) - Math.abs(getWarmth(b) - idealWarmth),
+            )[0];
+
+            fromWardrobeItems.push(best);
             selectedCategories.add(category);
         }
 

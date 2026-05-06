@@ -8,6 +8,7 @@ export type RecommendationFromWardrobeItem = {
     name: string;
     category: WardrobeCategory | string;
     imageUrl: string;
+    imageUrlNoBg?: string | null;
 };
 
 export type RecommendationMissingItem = {
@@ -18,6 +19,7 @@ export type RecommendationMissingItem = {
 
 export type AiRecommendationResponse = {
     id: string;
+    outfitImageUrl?: string | null;
     createdAt: string;
     city: string;
     recommended: string[];
@@ -33,6 +35,7 @@ export type RecommendationHistoryItem = {
     city: string;
     createdAt: string;
     summary: string[];
+    outfitImageUrl: string | null;
     hasComment: boolean;
     userRating: number | null;
 };
@@ -65,7 +68,7 @@ export async function fetchAiRecommendation(
                 description: weather.description,
             }),
         },
-        15000,
+        90000,
     );
 
     if (!response.ok) {
@@ -110,17 +113,21 @@ export async function fetchAiRecommendation(
                 const name = typeof candidate.name === 'string' ? candidate.name : '';
                 const category = typeof candidate.category === 'string' ? candidate.category : 'TOPS';
                 const imageUrl = typeof candidate.imageUrl === 'string' ? toAbsoluteUrl(candidate.imageUrl) : '';
+                const imageUrlNoBg: string | null | undefined =
+                    typeof candidate.imageUrlNoBg === 'string' ? toAbsoluteUrl(candidate.imageUrlNoBg) : null;
 
                 if (!id || !name) {
                     return null;
                 }
 
-                return {
+                const result: RecommendationFromWardrobeItem = {
                     id,
                     name,
                     category,
                     imageUrl,
+                    imageUrlNoBg,
                 };
+                return result;
             })
             .filter((item): item is RecommendationFromWardrobeItem => Boolean(item));
     };
@@ -158,6 +165,7 @@ export async function fetchAiRecommendation(
         fromWardrobe: normalizeFromWardrobe(payload?.fromWardrobe),
         missing: normalizeMissing(payload?.missing),
         reasons: normalizeList(payload?.reasons),
+        outfitImageUrl: typeof payload?.outfitImageUrl === 'string' ? toAbsoluteUrl(payload.outfitImageUrl) : null,
         userComment: typeof payload?.userComment === 'string' ? payload.userComment : null,
         userRating: typeof payload?.userRating === 'number' ? payload.userRating : null,
     };
@@ -208,6 +216,7 @@ export async function fetchRecommendationHistory(
                 city: typeof row.city === 'string' ? row.city : 'Unknown',
                 createdAt: typeof row.createdAt === 'string' ? row.createdAt : new Date().toISOString(),
                 summary,
+                outfitImageUrl: typeof row.outfitImageUrl === 'string' ? toAbsoluteUrl(row.outfitImageUrl) : null,
                 hasComment: Boolean(row.hasComment),
                 userRating: typeof row.userRating === 'number' ? row.userRating : null,
             };
@@ -288,9 +297,50 @@ export async function fetchRecommendationHistoryDetails(
         reasons: Array.isArray(payload?.reasons)
             ? payload.reasons.map((line: unknown) => (typeof line === 'string' ? line.trim() : '')).filter(Boolean)
             : [],
+        outfitImageUrl: typeof payload?.outfitImageUrl === 'string' ? toAbsoluteUrl(payload.outfitImageUrl) : null,
         userComment: typeof payload?.userComment === 'string' ? payload.userComment : null,
         userRating: typeof payload?.userRating === 'number' ? payload.userRating : null,
     };
+}
+
+export async function deleteRecommendation(
+    accessToken: string,
+    recommendationId: string,
+): Promise<void> {
+    const response = await fetchWithTimeout(
+        `${API_BASE_URL}/recommendations/${recommendationId}`,
+        {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${accessToken}` },
+        },
+        10000,
+    );
+
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.message || 'Failed to delete recommendation');
+    }
+}
+
+export async function clearRecommendationHistory(
+    accessToken: string,
+): Promise<{ deleted: number }> {
+    const response = await fetchWithTimeout(
+        `${API_BASE_URL}/recommendations/history`,
+        {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${accessToken}` },
+        },
+        10000,
+    );
+
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.message || 'Failed to clear history');
+    }
+
+    const payload = await response.json();
+    return { deleted: typeof payload?.deleted === 'number' ? payload.deleted : 0 };
 }
 
 export async function saveRecommendationFeedback(

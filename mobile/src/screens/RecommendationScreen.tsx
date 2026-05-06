@@ -13,10 +13,13 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchAiRecommendation,
   AiRecommendationResponse,
+  RecommendationFromWardrobeItem,
+  RecommendationMissingItem,
   saveRecommendationFeedback,
 } from '../utils/ai';
 
@@ -35,39 +38,105 @@ const GREEN  = '#51CF66';
 const { width: SCREEN_W } = Dimensions.get('window');
 const PAD = 18;
 
-// ─── Outfit zone config ───────────────────────────────────────────────────────
-const ZONES = [
-  { category: 'OUTERWEAR',   label: 'ВЕРХНІЙ ОДЯГ', imgW: SCREEN_W * 0.52, imgH: SCREEN_W * 0.62 },
-  { category: 'TOPS',        label: 'ВЕРХ',          imgW: SCREEN_W * 0.46, imgH: SCREEN_W * 0.56 },
-  { category: 'BOTTOMS',     label: 'НИЗ',           imgW: SCREEN_W * 0.44, imgH: SCREEN_W * 0.70 },
-] as const;
-
-const SMALL_ZONES = [
-  { category: 'SHOES',       label: 'ВЗУТТЯ'    },
-  { category: 'ACCESSORIES', label: 'АКСЕСУАРИ' },
-] as const;
-
-type ItemDto = {
-  id: string;
-  name: string;
-  category: string;
-  imageUrl: string;
-};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getWeatherEmoji(description = ''): string {
   const d = description.toLowerCase();
-  if (d.includes('thunder'))                           return '⛈️';
-  if (d.includes('snow'))                              return '❄️';
-  if (d.includes('rain') || d.includes('drizzle'))    return '🌧️';
-  if (d.includes('fog') || d.includes('mist'))        return '🌫️';
-  if (d.includes('overcast'))                         return '☁️';
-  if (d.includes('cloud'))                            return '⛅';
+  if (d.includes('thunder'))                         return '⛈️';
+  if (d.includes('snow'))                            return '❄️';
+  if (d.includes('rain') || d.includes('drizzle'))  return '🌧️';
+  if (d.includes('fog') || d.includes('mist'))      return '🌫️';
+  if (d.includes('overcast'))                       return '☁️';
+  if (d.includes('cloud'))                          return '⛅';
   return '☀️';
 }
 
 function starLabel(n: number): string {
   return ['😕', '😐', '🙂', '😊', '🤩'][n - 1] ?? '';
+}
+
+// ─── Category display config ──────────────────────────────────────────────────
+const CATEGORY_ORDER = ['OUTERWEAR', 'TOPS', 'BOTTOMS', 'SHOES', 'ACCESSORIES'] as const;
+const CATEGORY_LABELS: Record<string, string> = {
+  OUTERWEAR:   'Верхній одяг',
+  TOPS:        'Верх',
+  BOTTOMS:     'Низ',
+  SHOES:       'Взуття',
+  ACCESSORIES: 'Аксесуари',
+};
+const CATEGORY_ICONS: Record<string, string> = {
+  OUTERWEAR:   '🧥',
+  TOPS:        '👕',
+  BOTTOMS:     '👖',
+  SHOES:       '👟',
+  ACCESSORIES: '🎒',
+};
+// Card heights by category
+const CARD_HEIGHTS: Record<string, number> = {
+  OUTERWEAR:   SCREEN_W * 0.65,
+  TOPS:        SCREEN_W * 0.60,
+  BOTTOMS:     SCREEN_W * 0.72,
+  SHOES:       SCREEN_W * 0.48,
+  ACCESSORIES: SCREEN_W * 0.48,
+};
+const FLAT_LAY_W = SCREEN_W - PAD * 2 - 40;
+
+// ─── Flat Lay Board ───────────────────────────────────────────────────────────
+function CollageBoard({ items, missing, onAddMissing }: {
+  items: RecommendationFromWardrobeItem[];
+  missing: RecommendationMissingItem[];
+  onAddMissing: () => void;
+}) {
+  const byCategory = new Map(items.map(i => [i.category, i]));
+  const missingByCategory = new Map(missing.map(m => [m.category, m]));
+
+  return (
+    <View style={styles.flatLayList}>
+      {CATEGORY_ORDER.map(cat => {
+        const item = byCategory.get(cat);
+        const missingItem = missingByCategory.get(cat);
+        const cardH = CARD_HEIGHTS[cat] ?? SCREEN_W * 0.55;
+
+        if (item) {
+          // ── Present item ──
+          return (
+            <View key={cat} style={[styles.flatLayCard, { height: cardH }]}>
+              <Image
+                source={{ uri: item.imageUrl }}
+                style={styles.flatLayImage}
+                resizeMode="cover"
+              />
+              <View style={styles.flatLayTag}>
+                <Text style={styles.flatLayTagCat}>{CATEGORY_LABELS[cat] ?? cat}</Text>
+                <Text style={styles.flatLayTagName} numberOfLines={1}>{item.name}</Text>
+              </View>
+            </View>
+          );
+        }
+
+        if (missingItem) {
+          // ── Missing item placeholder ──
+          return (
+            <Pressable
+              key={cat}
+              style={({ pressed }) => [styles.flatLayEmpty, { height: cardH * 0.55 }, pressed && { opacity: 0.7 }]}
+              onPress={onAddMissing}
+            >
+              <View style={styles.flatLayEmptyPlus}>
+                <Text style={styles.flatLayEmptyPlusIcon}>+</Text>
+              </View>
+              <Text style={styles.flatLayEmptyLabel}>{CATEGORY_LABELS[cat] ?? cat}</Text>
+              <Text style={styles.flatLayEmptySuggestion} numberOfLines={2}>
+                {missingItem.suggestion}
+              </Text>
+            </Pressable>
+          );
+        }
+
+        return null;
+      })}
+    </View>
+  );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -159,18 +228,13 @@ export default function RecommendationScreen({ route, navigation }: any) {
         <View style={styles.center}>
           <ActivityIndicator size="large" color={GOLD} />
           <Text style={styles.loadingTitle}>Формуємо образ...</Text>
-          <Text style={styles.loadingHint}>AI аналізує погоду та твій гардероб</Text>
+          <Text style={styles.loadingHint}>AI аналізує гардероб та генерує образ{'\n'}(може зайняти до 30 секунд)</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // ── Group wardrobe items by category ──
-  const byCategory = (cat: string): ItemDto[] =>
-    rec?.fromWardrobe.filter(i => i.category === cat) ?? [];
-
-  const totalOutfitItems = rec?.fromWardrobe.length ?? 0;
-  const hasOutfit = totalOutfitItems > 0;
+  const hasOutfit = (rec?.fromWardrobe.length ?? 0) > 0;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -212,14 +276,13 @@ export default function RecommendationScreen({ route, navigation }: any) {
           </View>
         )}
 
-        {/* ══ FLAT LAY BOARD ══════════════════════════════════════ */}
-        <View style={styles.flatLayBoard}>
-          {/* Board title */}
+        {/* ══ OUTFIT BOARD ════════════════════════════════════════ */}
+        <View style={styles.collageBoardCard}>
           <View style={styles.boardHeader}>
             <Text style={styles.boardLabel}>ПІДІБРАНИЙ ОБРАЗ</Text>
             {hasOutfit && (
               <View style={styles.boardBadge}>
-                <Text style={styles.boardBadgeText}>{totalOutfitItems} речей</Text>
+                <Text style={styles.boardBadgeText}>{rec!.fromWardrobe.length} речей</Text>
               </View>
             )}
           </View>
@@ -227,94 +290,47 @@ export default function RecommendationScreen({ route, navigation }: any) {
           {aiLoading ? (
             <View style={styles.boardLoading}>
               <ActivityIndicator color={GOLD} size="small" />
-              <Text style={styles.boardLoadingText}>AI підбирає речі...</Text>
+              <Text style={styles.boardLoadingText}>AI генерує образ...</Text>
             </View>
-          ) : hasOutfit ? (
-            <View style={styles.flatLayContent}>
-              {/* ── Main zones (OUTERWEAR / TOPS / BOTTOMS) ── */}
-              {ZONES.map((zone, i) => {
-                const items = byCategory(zone.category);
-                if (items.length === 0) return null;
-                return (
-                  <React.Fragment key={zone.category}>
-                    <View style={styles.mainZone}>
-                      {/* Zone label */}
-                      <Text style={styles.zoneLabel}>{zone.label}</Text>
+          ) : rec?.outfitImageUrl ? (
+            /* ── AI generated image + Flat Lay below ── */
+            <View>
+              {/* AI image */}
+              <View style={styles.generatedImageWrap}>
+                <Image
+                  source={{ uri: rec.outfitImageUrl }}
+                  style={styles.generatedImage}
+                  resizeMode="cover"
+                />
+                <View style={styles.generatedBadge}>
+                  <Text style={styles.generatedBadgeText}>✦ Згенеровано AI</Text>
+                </View>
+              </View>
 
-                      {/* Images row */}
-                      <View style={styles.zoneImagesRow}>
-                        {items.map(item => (
-                          <View key={item.id} style={styles.mainZoneImageWrap}>
-                            <Image
-                              source={{ uri: item.imageUrl }}
-                              style={[
-                                styles.mainZoneImage,
-                                { width: zone.imgW, height: zone.imgH },
-                              ]}
-                              resizeMode="cover"
-                            />
-                            <View style={styles.imageNameTag}>
-                              <Text style={styles.imageNameTagText} numberOfLines={1}>
-                                {item.name}
-                              </Text>
-                            </View>
-                          </View>
-                        ))}
-                      </View>
-                    </View>
-
-                    {/* Connector between zones */}
-                    {i < ZONES.length - 1 && (
-                      <View style={styles.zoneConnector}>
-                        <View style={styles.zoneConnectorLine} />
-                        <View style={styles.zoneConnectorDot} />
-                        <View style={styles.zoneConnectorLine} />
-                      </View>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-
-              {/* ── Small zones (SHOES / ACCESSORIES) ── */}
-              {SMALL_ZONES.some(z => byCategory(z.category).length > 0) && (
+              {/* Flat Lay divider */}
+              {hasOutfit && (
                 <>
-                  <View style={styles.zoneConnector}>
-                    <View style={styles.zoneConnectorLine} />
-                    <View style={styles.zoneConnectorDot} />
-                    <View style={styles.zoneConnectorLine} />
+                  <View style={styles.flatLayDivider}>
+                    <View style={styles.flatLayDividerLine} />
+                    <Text style={styles.flatLayDividerLabel}>З ВАШОГО ГАРДЕРОБУ</Text>
+                    <View style={styles.flatLayDividerLine} />
                   </View>
-
-                  <View style={styles.smallZonesRow}>
-                    {SMALL_ZONES.map(zone => {
-                      const items = byCategory(zone.category);
-                      if (items.length === 0) return null;
-                      const itemW = (SCREEN_W - PAD * 2 - 40 - 12) / 2;
-                      return (
-                        <View key={zone.category} style={styles.smallZone}>
-                          <Text style={styles.zoneLabel}>{zone.label}</Text>
-                          {items.slice(0, 1).map(item => (
-                            <View key={item.id} style={styles.smallZoneImageWrap}>
-                              <Image
-                                source={{ uri: item.imageUrl }}
-                                style={[styles.smallZoneImage, { width: itemW, height: itemW }]}
-                                resizeMode="cover"
-                              />
-                              <View style={styles.imageNameTag}>
-                                <Text style={styles.imageNameTagText} numberOfLines={1}>
-                                  {item.name}
-                                </Text>
-                              </View>
-                            </View>
-                          ))}
-                        </View>
-                      );
-                    })}
-                  </View>
+                  <CollageBoard
+                    items={rec.fromWardrobe}
+                    missing={rec.missing}
+                    onAddMissing={() => navigation.navigate('Wardrobe')}
+                  />
                 </>
               )}
             </View>
+          ) : hasOutfit ? (
+            /* ── Fallback flat lay while image generates ── */
+            <CollageBoard
+              items={rec!.fromWardrobe}
+              missing={rec!.missing}
+              onAddMissing={() => navigation.navigate('Wardrobe')}
+            />
           ) : (
-            /* ── Empty flat lay ── */
             <View style={styles.boardEmpty}>
               <Text style={styles.boardEmptyEmoji}>👗</Text>
               <Text style={styles.boardEmptyTitle}>Гардероб порожній</Text>
@@ -378,7 +394,6 @@ export default function RecommendationScreen({ route, navigation }: any) {
           <Text style={styles.cardLabel}>ТВІЙ ВІДГУК</Text>
           <View style={styles.cardDivider} />
 
-          {/* Star rating */}
           <Text style={styles.fieldLabel}>Оцінка образу</Text>
           <View style={styles.ratingRow}>
             {[1, 2, 3, 4, 5].map(v => {
@@ -396,7 +411,6 @@ export default function RecommendationScreen({ route, navigation }: any) {
             })}
           </View>
 
-          {/* Comment */}
           <Text style={[styles.fieldLabel, { marginTop: 4 }]}>Коментар</Text>
           <TextInput
             value={comment}
@@ -452,26 +466,23 @@ export default function RecommendationScreen({ route, navigation }: any) {
 
       {/* ══ BOTTOM TAB BAR ══════════════════════════════════════ */}
       <View style={styles.tabBar}>
-        <TabItem icon="🌬️" label="ГОЛОВНА"  onPress={() => navigation.navigate('Home')} />
-        <TabItem icon="👔"  label="ГАРДЕРОБ" onPress={() => navigation.navigate('Wardrobe')} />
-        <TabItem icon="✦"   label="СТИЛЬ"    active />
-        <TabItem icon="🕐"  label="ЖУРНАЛ"   onPress={() => navigation.navigate('RecommendationHistory')} />
-        <TabItem icon="👤"  label="ПРОФІЛЬ"  onPress={() => navigation.navigate('Profile')} />
+        <TabItem iconName="home-outline"     label="ГОЛОВНА"  onPress={() => navigation.navigate('Home')} />
+        <TabItem iconName="shirt-outline"    label="ГАРДЕРОБ" onPress={() => navigation.navigate('Wardrobe')} />
+        <TabItem iconName="diamond"          label="СТИЛЬ"    active />
+        <TabItem iconName="time-outline"     label="ЖУРНАЛ"   onPress={() => navigation.navigate('RecommendationHistory')} />
+        <TabItem iconName="person-outline"   label="ПРОФІЛЬ"  onPress={() => navigation.navigate('Profile')} />
       </View>
     </SafeAreaView>
   );
 }
 
 // ─── Tab item ─────────────────────────────────────────────────────────────────
-function TabItem({ icon, label, active, onPress }: {
-  icon: string; label: string; active?: boolean; onPress?: () => void;
+function TabItem({ iconName, label, active, onPress }: {
+  iconName: string; label: string; active?: boolean; onPress?: () => void;
 }) {
   return (
-    <Pressable
-      style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.6 }]}
-      onPress={onPress}
-    >
-      <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{icon}</Text>
+    <Pressable style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.6 }]} onPress={onPress}>
+      <Ionicons name={iconName as any} size={22} color={active ? GOLD : '#555'} />
       <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
     </Pressable>
   );
@@ -531,8 +542,8 @@ const styles = StyleSheet.create({
   errorText:  { color: RED, fontSize: 13 },
   errorRetry: { color: GOLD, fontSize: 13, fontWeight: '600' },
 
-  // ══ FLAT LAY BOARD ══
-  flatLayBoard: {
+  // ══ COLLAGE BOARD ══
+  collageBoardCard: {
     backgroundColor: CARD,
     borderRadius: 22,
     borderWidth: 1,
@@ -569,98 +580,52 @@ const styles = StyleSheet.create({
   },
   boardLoadingText: { color: GRAY, fontSize: 13 },
 
-  // ── Flat lay content ──
-  flatLayContent: {
-    paddingVertical: 20,
-    alignItems: 'center',
-    gap: 0,
-  },
-
-  // Main zone (OUTERWEAR / TOPS / BOTTOMS)
-  mainZone: {
-    alignItems: 'center',
-    gap: 8,
-  },
-  zoneLabel: {
-    color: MUTED,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1.8,
-    textTransform: 'uppercase',
-  },
-  zoneImagesRow: {
-    flexDirection: 'row',
-    gap: 10,
-    justifyContent: 'center',
-  },
-  mainZoneImageWrap: {
+  // Canvas for absolute-positioned collage items
+  canvas: {
+    position: 'relative',
+    backgroundColor: CARD2,
+    marginHorizontal: 20,
+    marginVertical: 16,
     borderRadius: 18,
     overflow: 'hidden',
-    position: 'relative',
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  mainZoneImage: {
-    backgroundColor: CARD2,
   },
 
-  // Small zones (SHOES / ACCESSORIES)
-  smallZonesRow: {
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
+  // Each item in the collage
+  collageItem: {
+    position: 'absolute',
   },
-  smallZone: {
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
+  collageImage: {
+    width: '100%',
+    height: '100%',
   },
-  smallZoneImageWrap: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  smallZoneImage: {
-    backgroundColor: CARD2,
-  },
-
-  // Name tag on image
-  imageNameTag: {
+  collageTag: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0,0,0,0.62)',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
-  imageNameTagText: {
-    color: WHITE,
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: -0.1,
+  collageTagText: {
+    color: WHITE, fontSize: 10, fontWeight: '600', letterSpacing: 0.2,
   },
 
-  // Zone connector
-  zoneConnector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    gap: 4,
+  // Hint when no transparent backgrounds
+  noBgHint: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    right: 10,
+    backgroundColor: GOLD + '22',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: GOLD + '44',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  zoneConnectorLine: {
-    width: 1,
-    height: 16,
-    backgroundColor: BORDER,
-  },
-  zoneConnectorDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: GOLD + '88',
+  noBgHintText: {
+    color: GOLD, fontSize: 10, textAlign: 'center', fontWeight: '600',
   },
 
   // ── Board empty ──
@@ -829,6 +794,117 @@ const styles = StyleSheet.create({
     color: GOLD, fontWeight: '700', fontSize: 14,
   },
 
+  // ── DALL-E GENERATED IMAGE ──
+  generatedImageWrap: {
+    margin: 16,
+    borderRadius: 18,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  generatedImage: {
+    width: '100%',
+    aspectRatio: 1,
+    backgroundColor: CARD2,
+  },
+  generatedBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: GOLD + '55',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  generatedBadgeText: {
+    color: GOLD, fontSize: 10, fontWeight: '700', letterSpacing: 0.8,
+  },
+
+  // ── FLAT LAY DIVIDER ──
+  flatLayDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+  },
+  flatLayDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: BORDER,
+  },
+  flatLayDividerLabel: {
+    color: MUTED,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.6,
+  },
+
+  // ── FLAT LAY VERTICAL LIST ──
+  flatLayList: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
+    gap: 10,
+  },
+  flatLayCard: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: CARD2,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  flatLayImage: {
+    width: '100%',
+    height: '100%',
+  },
+  flatLayTag: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 2,
+  },
+  flatLayTagCat: {
+    color: GOLD, fontSize: 9, fontWeight: '700', letterSpacing: 1.4, textTransform: 'uppercase',
+  },
+  flatLayTagName: {
+    color: WHITE, fontSize: 13, fontWeight: '600',
+  },
+  // ── MISSING ITEM PLACEHOLDER ──
+  flatLayEmpty: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: GOLD + '44',
+    borderStyle: 'dashed',
+    backgroundColor: GOLD + '08',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 20,
+  },
+  flatLayEmptyPlus: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: GOLD + '22',
+    borderWidth: 1,
+    borderColor: GOLD + '66',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flatLayEmptyPlusIcon: { color: GOLD, fontSize: 24, fontWeight: '300' },
+  flatLayEmptyLabel:      { color: WHITE, fontSize: 14, fontWeight: '600' },
+  flatLayEmptySuggestion: { color: GRAY, fontSize: 12, textAlign: 'center', paddingHorizontal: 24 },
+
   // ── HISTORY LINK ──
   historyLink: { alignItems: 'center', paddingVertical: 4 },
   historyLinkText: {
@@ -845,9 +921,9 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'android' ? 12 : 6,
     paddingHorizontal: 6,
   },
-  tabItem:       { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 4 },
-  tabIcon:       { fontSize: 20, opacity: 0.4 },
-  tabIconActive: { opacity: 1 },
-  tabLabel:      { color: MUTED, fontSize: 9, fontWeight: '600', letterSpacing: 0.8 },
-  tabLabelActive:{ color: GOLD },
+  tabItem:        { flex: 1, alignItems: 'center', gap: 4, paddingVertical: 4 },
+  tabIcon:        { fontSize: 20, opacity: 0.4 },
+  tabIconActive:  { opacity: 1 },
+  tabLabel:       { color: MUTED, fontSize: 9, fontWeight: '600', letterSpacing: 0.8 },
+  tabLabelActive: { color: GOLD },
 });

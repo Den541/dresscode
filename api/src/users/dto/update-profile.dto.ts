@@ -11,6 +11,12 @@ import {
     MinLength,
 } from 'class-validator';
 
+export enum Gender {
+    MALE = 'MALE',
+    FEMALE = 'FEMALE',
+    NONBINARY = 'NONBINARY',
+}
+
 export class UpdateProfileDto {
     @IsOptional()
     @IsString()
@@ -32,4 +38,8 @@ export class UpdateProfileDto {
     @IsArray()
     @IsString({ each: true })
     favoriteCats?: string[];
+
+    @IsOptional()
+    @IsEnum(Gender)
+    gender?: Gender;
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Query, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Delete, Query, Body, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../shared/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/interfaces/jwt-payload.interface';
@@ -25,6 +25,16 @@ export class RecommendationsController {
     @Get('history/:id')
     getHistoryDetails(@CurrentUser() user: AuthUser, @Param('id') id: string) {
         return this.recommendationsService.getHistoryDetails(user.userId, id);
+    }
+
+    @Delete('history')
+    clearHistory(@CurrentUser() user: AuthUser) {
+        return this.recommendationsService.clearHistory(user.userId);
+    }
+
+    @Delete(':id')
+    deleteOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+        return this.recommendationsService.deleteOne(user.userId, id);
     }
 
     @Post(':id/comment')

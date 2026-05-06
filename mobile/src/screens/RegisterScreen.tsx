@@ -10,257 +10,256 @@ import {
     KeyboardAvoidingView,
     Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+
+const GOLD   = '#C9961A';
+const BG     = '#0D0D0D';
+const CARD   = '#141414';
+const BORDER = '#252525';
+const WHITE  = '#FFFFFF';
+const GRAY   = '#888888';
+const MUTED  = '#444444';
+const RED    = '#FF6B6B';
 
 type Props = { navigation: any };
 
 export default function RegisterScreen({ navigation }: Props) {
-    const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
+    const [name, setName]                     = useState('');
+    const [email, setEmail]                   = useState('');
+    const [password, setPassword]             = useState('');
     const [passwordConfirm, setPasswordConfirm] = useState('');
     const { register, loading, error: authError } = useAuth();
-    const [localError, setLocalError] = useState<string>('');
+    const [localError, setLocalError] = useState('');
+
+    const clearError = () => setLocalError('');
 
     const handleRegister = async () => {
+        setLocalError('');
+        if (!email.trim() || !password.trim()) { setLocalError('Email та пароль обовʼязкові'); return; }
+        if (!email.includes('@')) { setLocalError('Введи коректний email'); return; }
+        if (password.length < 8) { setLocalError('Пароль — мінімум 8 символів'); return; }
+        if (password !== passwordConfirm) { setLocalError('Паролі не збігаються'); return; }
         try {
-            setLocalError('');
-
-            if (!email.trim() || !password.trim()) {
-                setLocalError('Email and password are required');
-                return;
-            }
-
-            if (password.length < 8) {
-                setLocalError('Password must be at least 8 characters');
-                return;
-            }
-
-            if (password !== passwordConfirm) {
-                setLocalError('Passwords do not match');
-                return;
-            }
-
-            if (!email.includes('@')) {
-                setLocalError('Please enter a valid email');
-                return;
-            }
-
             await register(email.toLowerCase(), password, name || undefined);
-            // Navigation will happen automatically via nav guard
         } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Registration failed';
-            setLocalError(msg);
+            setLocalError(err instanceof Error ? err.message : 'Помилка реєстрації');
         }
     };
 
     const displayError = localError || authError;
 
     return (
-        <KeyboardAvoidingView
-            style={styles.keyboardContainer}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-        >
-            <ScrollView
-                contentContainerStyle={styles.container}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
+        <SafeAreaView style={styles.safe}>
+            <KeyboardAvoidingView
+                style={styles.flex}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
-                <View style={styles.header}>
-                    <Text style={styles.title}>DressCode</Text>
-                    <Text style={styles.subtitle}>Sign Up</Text>
-                </View>
+                <ScrollView
+                    contentContainerStyle={styles.container}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
+                    showsVerticalScrollIndicator={false}
+                >
+                    {/* ── Brand ── */}
+                    <View style={styles.brand}>
+                        <Text style={styles.brandEyebrow}>ТВІЙ ПЕРСОНАЛЬНИЙ СТИЛІСТ</Text>
+                        <Text style={styles.brandName}>DressCode</Text>
+                        <Text style={styles.brandTagline}>Створи свій акаунт</Text>
+                    </View>
 
-                <View style={styles.card}>
-                    <Text style={styles.label}>Name (optional)</Text>
-                    <TextInput
-                        value={name}
-                        onChangeText={setName}
-                        placeholder="John Doe"
-                        placeholderTextColor="#666"
-                        style={styles.input}
-                        autoCapitalize="words"
-                        editable={!loading}
-                    />
+                    {/* ── Form card ── */}
+                    <View style={styles.card}>
+                        <Text style={styles.cardTitle}>Реєстрація</Text>
+                        <View style={styles.cardDivider} />
 
-                    <Text style={styles.label}>Email</Text>
-                    <TextInput
-                        value={email}
-                        onChangeText={setEmail}
-                        placeholder="you@example.com"
-                        placeholderTextColor="#666"
-                        style={styles.input}
-                        autoCapitalize="none"
-                        keyboardType="email-address"
-                        returnKeyType="next"
-                        onSubmitEditing={() => { }}
-                        autoComplete="email"
-                        textContentType="emailAddress"
-                        importantForAutofill="yes"
-                        autoCorrect={false}
-                        spellCheck={false}
-                        keyboardAppearance="dark"
-                        editable={!loading}
-                    />
+                        <View style={styles.fieldGroup}>
+                            <Text style={styles.label}>ІМʼЯ <Text style={styles.optional}>(необовʼязково)</Text></Text>
+                            <TextInput
+                                value={name}
+                                onChangeText={t => { setName(t); clearError(); }}
+                                placeholder="Іван Петренко"
+                                placeholderTextColor={MUTED}
+                                style={styles.input}
+                                autoCapitalize="words"
+                                returnKeyType="next"
+                                keyboardAppearance="dark"
+                                editable={!loading}
+                            />
+                        </View>
 
-                    <Text style={styles.label}>Password</Text>
-                    <TextInput
-                        value={password}
-                        onChangeText={setPassword}
-                        placeholder="••••••••"
-                        placeholderTextColor="#666"
-                        style={styles.input}
-                        secureTextEntry
-                        returnKeyType="next"
-                        onSubmitEditing={() => { }}
-                        autoComplete="password-new"
-                        textContentType="newPassword"
-                        importantForAutofill="yes"
-                        autoCorrect={false}
-                        spellCheck={false}
-                        keyboardAppearance="dark"
-                        editable={!loading}
-                    />
+                        <View style={styles.fieldGroup}>
+                            <Text style={styles.label}>EMAIL</Text>
+                            <TextInput
+                                value={email}
+                                onChangeText={t => { setEmail(t); clearError(); }}
+                                placeholder="you@example.com"
+                                placeholderTextColor={MUTED}
+                                style={styles.input}
+                                autoCapitalize="none"
+                                keyboardType="email-address"
+                                returnKeyType="next"
+                                autoComplete="email"
+                                textContentType="emailAddress"
+                                autoCorrect={false}
+                                spellCheck={false}
+                                keyboardAppearance="dark"
+                                editable={!loading}
+                            />
+                        </View>
 
-                    <Text style={styles.label}>Confirm Password</Text>
-                    <TextInput
-                        value={passwordConfirm}
-                        onChangeText={setPasswordConfirm}
-                        placeholder="••••••••"
-                        placeholderTextColor="#666"
-                        style={styles.input}
-                        secureTextEntry
-                        returnKeyType="done"
-                        onSubmitEditing={() => { }}
-                        autoComplete="password-new"
-                        textContentType="newPassword"
-                        importantForAutofill="yes"
-                        autoCorrect={false}
-                        spellCheck={false}
-                        keyboardAppearance="dark"
-                        editable={!loading}
-                    />
+                        <View style={styles.fieldGroup}>
+                            <Text style={styles.label}>ПАРОЛЬ</Text>
+                            <TextInput
+                                value={password}
+                                onChangeText={t => { setPassword(t); clearError(); }}
+                                placeholder="Мінімум 8 символів"
+                                placeholderTextColor={MUTED}
+                                style={styles.input}
+                                secureTextEntry
+                                returnKeyType="next"
+                                autoComplete="password-new"
+                                textContentType="newPassword"
+                                autoCorrect={false}
+                                spellCheck={false}
+                                keyboardAppearance="dark"
+                                editable={!loading}
+                            />
+                        </View>
 
-                    {displayError && (
-                        <Text style={styles.errorText}>{displayError}</Text>
-                    )}
+                        <View style={styles.fieldGroup}>
+                            <Text style={styles.label}>ПІДТВЕРДЖЕННЯ ПАРОЛЯ</Text>
+                            <TextInput
+                                value={passwordConfirm}
+                                onChangeText={t => { setPasswordConfirm(t); clearError(); }}
+                                placeholder="••••••••"
+                                placeholderTextColor={MUTED}
+                                style={[
+                                    styles.input,
+                                    passwordConfirm.length > 0 && password !== passwordConfirm && styles.inputError,
+                                ]}
+                                secureTextEntry
+                                returnKeyType="done"
+                                onSubmitEditing={handleRegister}
+                                autoComplete="password-new"
+                                textContentType="newPassword"
+                                autoCorrect={false}
+                                spellCheck={false}
+                                keyboardAppearance="dark"
+                                editable={!loading}
+                            />
+                        </View>
 
-                    <Pressable
-                        style={[styles.registerBtn, loading && styles.btnDisabled]}
-                        onPress={handleRegister}
-                        disabled={loading}
-                    >
-                        {loading ? (
-                            <ActivityIndicator color="#000" />
-                        ) : (
-                            <Text style={styles.registerBtnText}>Sign Up</Text>
+                        {!!displayError && (
+                            <View style={styles.errorBanner}>
+                                <Text style={styles.errorText}>⚠️  {displayError}</Text>
+                            </View>
                         )}
-                    </Pressable>
-                </View>
 
-                <View style={styles.footer}>
-                    <Text style={styles.footerText}>Already have an account? </Text>
-                    <Pressable onPress={() => navigation.navigate('Login')}>
-                        <Text style={styles.linkText}>Sign In</Text>
-                    </Pressable>
-                </View>
-            </ScrollView>
-        </KeyboardAvoidingView>
+                        <Pressable
+                            style={({ pressed }) => [styles.primaryBtn, (loading || pressed) && styles.primaryBtnDim]}
+                            onPress={handleRegister}
+                            disabled={loading}
+                        >
+                            {loading
+                                ? <ActivityIndicator color="#000" size="small" />
+                                : <Text style={styles.primaryBtnText}>Створити акаунт</Text>
+                            }
+                        </Pressable>
+                    </View>
+
+                    {/* ── Footer ── */}
+                    <View style={styles.footer}>
+                        <Text style={styles.footerText}>Вже є акаунт? </Text>
+                        <Pressable onPress={() => navigation.navigate('Login')} disabled={loading}>
+                            <Text style={styles.footerLink}>Увійти</Text>
+                        </Pressable>
+                    </View>
+                </ScrollView>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    keyboardContainer: {
-        flex: 1,
-        backgroundColor: '#0b0b0b',
+    safe:      { flex: 1, backgroundColor: BG },
+    flex:      { flex: 1 },
+    container: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 40, paddingBottom: 32, gap: 28 },
+
+    // ── Brand ──
+    brand: { alignItems: 'center', gap: 6, paddingTop: 8 },
+    brandEyebrow: {
+        color: GOLD, fontSize: 9, fontWeight: '700', letterSpacing: 3,
+    },
+    brandName: {
+        color: GOLD, fontSize: 48, fontWeight: '700', letterSpacing: -1.5, lineHeight: 52,
+    },
+    brandTagline: {
+        color: GRAY, fontSize: 14, letterSpacing: 0.3,
     },
 
-    container: {
-        flexGrow: 1,
-        padding: 16,
-        backgroundColor: '#0b0b0b',
-        justifyContent: 'space-between',
-    },
-    header: {
-        marginTop: 40,
-        marginBottom: 40,
-    },
-    title: {
-        fontSize: 32,
-        fontWeight: '700',
-        color: '#fff',
-    },
-    subtitle: {
-        fontSize: 16,
-        color: '#aaa',
-        marginTop: 4,
-    },
-
+    // ── Card ──
     card: {
+        backgroundColor: CARD,
+        borderRadius: 24,
         borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 14,
-        padding: 16,
-        backgroundColor: '#121212',
-        gap: 12,
+        borderColor: BORDER,
+        padding: 24,
+        gap: 16,
     },
+    cardTitle: {
+        color: WHITE, fontSize: 20, fontWeight: '700', letterSpacing: -0.3,
+    },
+    cardDivider: { height: 1, backgroundColor: BORDER },
 
+    // ── Fields ──
+    fieldGroup: { gap: 6 },
     label: {
-        color: '#fff',
-        fontSize: 14,
-        fontWeight: '600',
-        marginTop: 8,
+        color: MUTED, fontSize: 10, fontWeight: '700', letterSpacing: 1.5,
     },
-
+    optional: {
+        color: '#333', fontSize: 10, fontWeight: '400', letterSpacing: 0,
+    },
     input: {
+        backgroundColor: '#0A0A0A',
         borderWidth: 1,
-        borderColor: '#2a2a2a',
-        borderRadius: 12,
-        padding: 12,
-        color: '#fff',
-        backgroundColor: '#0f0f0f',
-        fontSize: 14,
+        borderColor: BORDER,
+        borderRadius: 14,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        color: WHITE,
+        fontSize: 15,
+    },
+    inputError: {
+        borderColor: RED + '66',
     },
 
-    errorText: {
-        color: '#ff6b6b',
-        fontSize: 12,
+    // ── Error ──
+    errorBanner: {
+        backgroundColor: RED + '14',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: RED + '33',
+        paddingVertical: 11,
+        paddingHorizontal: 14,
+    },
+    errorText: { color: RED, fontSize: 13 },
+
+    // ── Primary button ──
+    primaryBtn: {
+        backgroundColor: GOLD,
+        borderRadius: 16,
+        paddingVertical: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 54,
         marginTop: 4,
     },
+    primaryBtnDim: { opacity: 0.7 },
+    primaryBtnText: { color: '#000', fontWeight: '700', fontSize: 16, letterSpacing: 0.2 },
 
-    registerBtn: {
-        backgroundColor: '#fff',
-        paddingVertical: 12,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginTop: 8,
-    },
-
-    btnDisabled: {
-        opacity: 0.6,
-    },
-
-    registerBtnText: {
-        color: '#000',
-        fontWeight: '700',
-        fontSize: 16,
-    },
-
-    footer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        marginBottom: 40,
-    },
-
-    footerText: {
-        color: '#aaa',
-        fontSize: 14,
-    },
-
-    linkText: {
-        color: '#fff',
-        fontWeight: '700',
-        fontSize: 14,
-    },
+    // ── Footer ──
+    footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+    footerText: { color: GRAY, fontSize: 14 },
+    footerLink: { color: GOLD, fontSize: 14, fontWeight: '700' },
 });

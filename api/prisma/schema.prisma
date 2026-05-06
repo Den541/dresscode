@@ -21,12 +21,13 @@ model User {
 }
 
 model UserPreferences {
-  id              String @id @default(cuid())
-  userId          String @unique
-  style           Style  @default(CASUAL)
-  coldSensitivity Int    @default(0)
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  style           Style   @default(CASUAL)
+  coldSensitivity Int     @default(0)
   favoriteCats    Json?
-  user            User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gender          String?
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 enum Style {
@@ -50,7 +51,8 @@ model WardrobeItem {
   name      String
   category  WardrobeCategory
   tags      Json?
-  imageUrl  String
+  imageUrl     String
+  imageUrlNoBg String?
   aiAnalysis Json?
   aiAnalyzedAt DateTime?
   createdAt DateTime           @default(now())
@@ -71,6 +73,7 @@ model Recommendation {
   missingItems          Json
   reasons               Json
   selectedWardrobeItemIds Json?
+  outfitImageUrl        String?
   userComment           String?
   userRating            Int?
   commentedAt           DateTime?

@@ -22,6 +22,7 @@ export type WardrobeItem = {
     category: WardrobeCategory;
     tags: string[];
     imageUrl: string;
+    imageUrlNoBg?: string | null;
     aiAnalysis?: {
         suggestedName?: string;
         suggestedCategory?: WardrobeCategory;
@@ -43,6 +44,7 @@ export function normalizeWardrobeItem(item: any): WardrobeItem {
         category: item.category,
         tags: Array.isArray(item.tags) ? item.tags : [],
         imageUrl: toAbsoluteUrl(item.imageUrl),
+        imageUrlNoBg: item.imageUrlNoBg ? toAbsoluteUrl(item.imageUrlNoBg) : null,
         aiAnalysis: item.aiAnalysis ?? null,
         aiAnalyzedAt: item.aiAnalyzedAt ?? null,
         createdAt: item.createdAt,
@@ -76,6 +78,26 @@ export async function deleteWardrobeItem(accessToken: string, itemId: string): P
     if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data?.message || 'Failed to delete item');
+    }
+}
+
+export async function updateWardrobeItemWarmth(
+    accessToken: string,
+    itemId: string,
+    warmthLevel: number,
+): Promise<void> {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/wardrobe/${itemId}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ warmthLevel }),
+    }, 10000);
+
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.message || 'Failed to update warmth level');
     }
 }
 

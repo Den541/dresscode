@@ -21,6 +21,7 @@ export class UsersService {
                         style: true,
                         coldSensitivity: true,
                         favoriteCats: true,
+                        gender: true,
                     },
                 },
             },
@@ -34,7 +35,7 @@ export class UsersService {
     }
 
     async updateMe(userId: string, dto: UpdateProfileDto) {
-        const { name, style, coldSensitivity, favoriteCats } = dto;
+        const { name, style, coldSensitivity, favoriteCats, gender } = dto;
 
         if (typeof name !== 'undefined') {
             await this.prisma.user.update({
@@ -46,7 +47,8 @@ export class UsersService {
         if (
             typeof style !== 'undefined' ||
             typeof coldSensitivity !== 'undefined' ||
-            typeof favoriteCats !== 'undefined'
+            typeof favoriteCats !== 'undefined' ||
+            typeof gender !== 'undefined'
         ) {
             await this.prisma.userPreferences.upsert({
                 where: { userId },
@@ -55,13 +57,13 @@ export class UsersService {
                     style: style ?? Style.CASUAL,
                     coldSensitivity: coldSensitivity ?? 0,
                     favoriteCats,
+                    gender: gender ?? null,
                 },
                 update: {
                     ...(typeof style !== 'undefined' ? { style } : {}),
-                    ...(typeof coldSensitivity !== 'undefined'
-                        ? { coldSensitivity }
-                        : {}),
+                    ...(typeof coldSensitivity !== 'undefined' ? { coldSensitivity } : {}),
                     ...(typeof favoriteCats !== 'undefined' ? { favoriteCats } : {}),
+                    ...(typeof gender !== 'undefined' ? { gender } : {}),
                 },
             });
         }

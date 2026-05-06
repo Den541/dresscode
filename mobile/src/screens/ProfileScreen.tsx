@@ -12,6 +12,7 @@ import {
     Platform,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
 
@@ -28,10 +29,13 @@ const GREEN  = '#51CF66';
 
 type Props = { navigation: any };
 
+type Gender = 'MALE' | 'FEMALE' | 'NONBINARY';
+
 type UserPreferences = {
     style: 'CASUAL' | 'FORMAL' | 'SPORTY';
     coldSensitivity: number;
     favoriteCats: string[];
+    gender: Gender | null;
 };
 
 type UserProfile = {
@@ -45,6 +49,12 @@ const STYLE_OPTIONS = [
     { value: 'CASUAL' as const,  label: 'Кежуал', icon: '👕' },
     { value: 'FORMAL' as const,  label: 'Формальний', icon: '👔' },
     { value: 'SPORTY' as const,  label: 'Спортивний', icon: '⚡' },
+];
+
+const GENDER_OPTIONS: { value: Gender; label: string; icon: string }[] = [
+    { value: 'MALE',      label: 'Чоловіча', icon: '♂' },
+    { value: 'FEMALE',    label: 'Жіноча',   icon: '♀' },
+    { value: 'NONBINARY', label: 'Інша',     icon: '⚬' },
 ];
 
 const CAT_OPTIONS = [
@@ -82,13 +92,14 @@ function getColdHint(value: number): string {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function ProfileScreen({ navigation }: Props) {
-    const { user, accessToken, logout } = useAuth();
+    const { user, accessToken, logout, refreshAccessToken } = useAuth();
 
     const [profile, setProfile]                   = useState<UserProfile | null>(null);
     const [name, setName]                         = useState('');
     const [style, setStyle]                       = useState<'CASUAL' | 'FORMAL' | 'SPORTY'>('CASUAL');
     const [coldSensitivity, setColdSensitivity]   = useState(0);
     const [favoriteCats, setFavoriteCats]         = useState<string[]>([]);
+    const [gender, setGender]                     = useState<Gender | null>(null);
     const [loading, setLoading]                   = useState(true);
     const [saving, setSaving]                     = useState(false);
     const [error, setError]                       = useState('');
@@ -102,17 +113,35 @@ export default function ProfileScreen({ navigation }: Props) {
             setError('');
             if (!accessToken) { setError('Не авторизовано'); return; }
 
-            const res = await fetch(`${API_BASE_URL}/users/me`, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-            });
-            if (!res.ok) throw new Error('Не вдалось завантажити профіль');
+            const fetchProfile = async (token: string) => {
+                const res = await fetch(`${API_BASE_URL}/users/me`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) throw new Error('Не вдалось завантажити профіль');
+                return res.json();
+            };
 
-            const data = await res.json();
-            setProfile(data);
-            setName(data.name || '');
-            setStyle(data.preferences.style);
-            setColdSensitivity(data.preferences.coldSensitivity);
-            setFavoriteCats(data.preferences.favoriteCats || []);
+            try {
+                const data = await fetchProfile(accessToken);
+                setProfile(data);
+                setName(data.name || '');
+                setStyle(data.preferences.style);
+                setColdSensitivity(data.preferences.coldSensitivity);
+                setFavoriteCats(data.preferences.favoriteCats || []);
+                setGender(data.preferences.gender ?? null);
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : '';
+                if (!msg.toLowerCase().includes('not found') && !msg.includes('Не вдалось')) throw err;
+                const nextToken = await refreshAccessToken();
+                if (!nextToken) throw new Error('Сесія завершилась. Увійди повторно.');
+                const data = await fetchProfile(nextToken);
+                setProfile(data);
+                setName(data.name || '');
+                setStyle(data.preferences.style);
+                setColdSensitivity(data.preferences.coldSensitivity);
+                setFavoriteCats(data.preferences.favoriteCats || []);
+                setGender(data.preferences.gender ?? null);
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Помилка завантаження');
         } finally {
@@ -127,29 +156,45 @@ export default function ProfileScreen({ navigation }: Props) {
             setError('');
             if (!accessToken) { setError('Не авторизовано'); return; }
 
-            const res = await fetch(`${API_BASE_URL}/users/me`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${accessToken}`,
-                },
-                body: JSON.stringify({
-                    name: name || undefined,
-                    style,
-                    coldSensitivity,
-                    favoriteCats,
-                }),
-            });
+            const saveData = async (token: string) => {
+                const res = await fetch(`${API_BASE_URL}/users/me`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                        name: name || undefined,
+                        style,
+                        coldSensitivity,
+                        favoriteCats,
+                        gender: gender ?? undefined,
+                    }),
+                });
 
-            if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data?.message || 'Не вдалось зберегти');
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data?.message || 'Не вдалось зберегти');
+                }
+
+                return res.json();
+            };
+
+            try {
+                const updated = await saveData(accessToken);
+                setProfile(updated);
+                setSuccess('Профіль збережено');
+                setTimeout(() => setSuccess(''), 2500);
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : '';
+                if (!msg.includes('Не авторизовано') && !msg.includes('Не вдалось')) throw err;
+                const nextToken = await refreshAccessToken();
+                if (!nextToken) throw new Error('Сесія завершилась. Увійди повторно.');
+                const updated = await saveData(nextToken);
+                setProfile(updated);
+                setSuccess('Профіль збережено');
+                setTimeout(() => setSuccess(''), 2500);
             }
-
-            const updated = await res.json();
-            setProfile(updated);
-            setSuccess('Профіль збережено');
-            setTimeout(() => setSuccess(''), 2500);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Помилка збереження');
         } finally {
@@ -297,6 +342,30 @@ export default function ProfileScreen({ navigation }: Props) {
                     </View>
                 </SectionCard>
 
+                {/* ══ GENDER ════════════════════════════════════════════ */}
+                <SectionCard label="СТАТЬ">
+                    <View style={styles.genderRow}>
+                        {GENDER_OPTIONS.map(opt => {
+                            const active = gender === opt.value;
+                            return (
+                                <Pressable
+                                    key={opt.value}
+                                    style={[styles.genderCard, active && styles.genderCardActive]}
+                                    onPress={() => setGender(active ? null : opt.value)}
+                                >
+                                    <Text style={[styles.genderIcon, active && styles.genderIconActive]}>
+                                        {opt.icon}
+                                    </Text>
+                                    <Text style={[styles.genderLabel, active && styles.genderLabelActive]}>
+                                        {opt.label}
+                                    </Text>
+                                    {active && <View style={styles.genderDot} />}
+                                </Pressable>
+                            );
+                        })}
+                    </View>
+                </SectionCard>
+
                 {/* ══ STATUS MESSAGES ═══════════════════════════════════ */}
                 {!!error && (
                     <View style={styles.errorBanner}>
@@ -338,11 +407,11 @@ export default function ProfileScreen({ navigation }: Props) {
 
             {/* ══ BOTTOM TAB BAR ══════════════════════════════════════ */}
             <View style={styles.tabBar}>
-                <TabItem icon="🌬️" label="ГОЛОВНА"  onPress={() => navigation.navigate('Home')} />
-                <TabItem icon="👔"  label="ГАРДЕРОБ" onPress={() => navigation.navigate('Wardrobe')} />
-                <TabItem icon="✦"   label="СТИЛЬ"    onPress={() => navigation.navigate('Recommendation')} />
-                <TabItem icon="🕐"  label="ЖУРНАЛ"   onPress={() => navigation.navigate('RecommendationHistory')} />
-                <TabItem icon="👤"  label="ПРОФІЛЬ"  active />
+                <TabItem iconName="home-outline"    label="ГОЛОВНА"  onPress={() => navigation.navigate('Home')} />
+                <TabItem iconName="shirt-outline"   label="ГАРДЕРОБ" onPress={() => navigation.navigate('Wardrobe')} />
+                <TabItem iconName="diamond-outline" label="СТИЛЬ"    onPress={() => navigation.navigate('Recommendation')} />
+                <TabItem iconName="time-outline"    label="ЖУРНАЛ"   onPress={() => navigation.navigate('RecommendationHistory')} />
+                <TabItem iconName="person"          label="ПРОФІЛЬ"  active />
             </View>
         </SafeAreaView>
     );
@@ -360,15 +429,15 @@ function SectionCard({ label, children }: { label: string; children: React.React
 }
 
 // ─── Tab item ─────────────────────────────────────────────────────────────────
-function TabItem({ icon, label, active, onPress }: {
-    icon: string; label: string; active?: boolean; onPress?: () => void;
+function TabItem({ iconName, label, active, onPress }: {
+    iconName: string; label: string; active?: boolean; onPress?: () => void;
 }) {
     return (
         <Pressable
             style={({ pressed }) => [styles.tabItem, pressed && { opacity: 0.6 }]}
             onPress={onPress}
         >
-            <Text style={[styles.tabIcon, active && styles.tabIconActive]}>{icon}</Text>
+            <Ionicons name={iconName as any} size={22} color={active ? '#C9961A' : '#555'} />
             <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
         </Pressable>
     );
@@ -462,6 +531,51 @@ const styles = StyleSheet.create({
         color: WHITE,
         fontSize: 15,
         fontWeight: '500',
+    },
+
+    // ── STYLE ──
+    // ── GENDER ──
+    genderRow: {
+        flexDirection: 'row',
+        gap: 10,
+    },
+    genderCard: {
+        flex: 1,
+        backgroundColor: '#0F0F0F',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: BORDER,
+        alignItems: 'center',
+        paddingVertical: 16,
+        gap: 6,
+    },
+    genderCardActive: {
+        borderColor: GOLD,
+        backgroundColor: GOLD + '18',
+    },
+    genderIcon: {
+        fontSize: 22,
+        color: GRAY,
+        lineHeight: 28,
+    },
+    genderIconActive: {
+        color: GOLD,
+    },
+    genderLabel: {
+        color: GRAY,
+        fontSize: 11,
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    genderLabelActive: {
+        color: GOLD,
+    },
+    genderDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: GOLD,
+        marginTop: 2,
     },
 
     // ── STYLE ──

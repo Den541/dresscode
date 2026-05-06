@@ -1,8 +1,9 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
-import { readFile } from 'fs/promises';
-import { extname } from 'path';
+import OpenAI, { toFile } from 'openai';
+import { readFile, writeFile } from 'fs/promises';
+import { extname, join } from 'path';
+import * as https from 'https';
 
 const WARDROBE_CATEGORIES = ['OUTERWEAR', 'TOPS', 'BOTTOMS', 'SHOES', 'ACCESSORIES'] as const;
 type WardrobeCategory = (typeof WARDROBE_CATEGORIES)[number];
@@ -26,8 +27,17 @@ export type AiRecommendation = {
     wardrobeFit: string;
 };
 
+const CATEGORY_UA: Record<string, string> = {
+    OUTERWEAR: 'верхній одяг (куртка/пальто)',
+    TOPS: 'верх (футболка/сорочка/светр)',
+    BOTTOMS: 'низ (штани/джинси/спідниця)',
+    SHOES: 'взуття',
+    ACCESSORIES: 'аксесуари',
+};
+
 @Injectable()
 export class AiService {
+    private readonly logger = new Logger(AiService.name);
     private readonly client: OpenAI | null;
     private readonly model: string;
     private readonly allowedCategories = WARDROBE_CATEGORIES;
@@ -66,7 +76,18 @@ export class AiService {
             'Якщо на фото штани, джинси, брюки, шорти, легінси або спідниця — обов’язково вибирай BOTTOMS.',
             'Якщо на фото футболка, сорочка, світшот, худі, светр або топ — вибирай TOPS.',
             'Якщо фото нечітке, обирай найбільш імовірну категорію, але не вигадуй зайвого.',
-            'warmthLevel має бути цілим числом від 0 до 10.',
+            'warmthLevel має бути цілим числом від 0 до 10 за такою шкалою:',
+            '  1 — майка, бюстгальтер-топ, тонке мереживо',
+            '  2 — тонка шовкова блуза, легке плаття без рукавів',
+            '  3 — футболка (бавовна), легкі шорти, тонкі штани',
+            '  4 — сорочка, лонгслів, легкі джинси',
+            '  5 — тонкий светр, вельветові штани, легкий кардиган',
+            '  6 — товстий светр, флісова кофта, щільні джинси',
+            '  7 — худі, трикотажний джемпер, утеплені штани',
+            '  8 — легка куртка, вітровка, демісезонне пальто',
+            '  9 — зимова куртка, пуховик середньої товщини, парка',
+            ' 10 — важкий пуховик, хутряне пальто, арктичний одяг',
+            'Враховуй матеріал (вовна/флі/пух = тепліше; льон/шовк/сітка = холодніше) та наявність підкладки.',
             'Усі текстові значення повертай українською, крім коду категорії.',
             `Name hint: ${input.name?.trim() || 'none'}`,
             `Category hint: ${input.category?.trim() || 'none'}`,
@@ -537,6 +558,96 @@ export class AiService {
         }
 
         return null;
+    }
+
+    // ─── Outfit image generation ──────────────────────────────────────────────
+
+    /**
+     * Sends real wardrobe photos directly to gpt-image-1, which sees and incorporates
+     * the actual clothes into a professional flat lay composition.
+     * Falls back to DALL-E 3 if gpt-image-1 is unavailable.
+     */
+    async generateOutfitImage(
+        items: Array<{ name: string; category: string; imagePath: string }>,
+    ): Promise<string | null> {
+        if (!this.client || items.length === 0) return null;
+
+        try {
+            const itemsList = items
+                .map((i, idx) => `${idx + 1}. ${i.name} (${CATEGORY_UA[i.category] ?? i.category})`)
+                .join('\n');
+
+            const prompt = `You are a professional fashion photographer creating a flat lay photo.
+I am giving you EXACTLY ${items.length} clothing item(s). Here they are:
+${itemsList}
+
+STRICT RULES — follow exactly:
+1. Show ONLY these ${items.length} item(s) in the image. DO NOT add any other clothing, shoes, accessories, bags, jewellery, belts, hats or garments that were NOT provided.
+2. Copy the EXACT colors, textures, patterns and design of each item from the input photos — do not change or invent details.
+3. If only 1 item is provided, show only that single item.
+4. Arrange the items as a flat lay: top-down bird's eye view on a seamless light warm grey (#E8E4DF) background.
+5. Natural order from top to bottom: outerwear first, then tops, then bottoms, then shoes — only for items actually provided.
+6. Bright even studio lighting, soft shadows under each garment for depth.
+7. Magazine editorial quality, hyper-realistic fabric textures, crisp focus.
+8. No mannequin, no human body, clothes laid perfectly flat.`;
+
+            // Build file array for gpt-image-1
+            const imageFiles: Awaited<ReturnType<typeof toFile>>[] = [];
+            for (const item of items) {
+                try {
+                    const buffer = await readFile(item.imagePath);
+                    const filename = item.imagePath.split('/').pop() ?? 'item.jpg';
+                    const mimeType = this.getMimeType(item.imagePath);
+                    imageFiles.push(await toFile(buffer, filename, { type: mimeType }));
+                } catch {
+                    this.logger.warn(`Could not load image for ${item.name}`);
+                }
+            }
+
+            if (imageFiles.length === 0) return null;
+
+            // gpt-image-1: pass real photos directly — model sees and uses them
+            const resp = await (this.client.images as any).edit({
+                model: 'gpt-image-1',
+                image: imageFiles.length === 1 ? imageFiles[0] : imageFiles,
+                prompt,
+                size: '1024x1024',
+                quality: 'high',
+                n: 1,
+            });
+
+            const imageData = resp.data?.[0];
+            if (!imageData) return null;
+
+            const filename = `outfit-${Date.now()}.png`;
+            const filePath = join(process.cwd(), 'uploads', filename);
+
+            if (imageData.b64_json) {
+                await writeFile(filePath, Buffer.from(imageData.b64_json, 'base64'));
+            } else if (imageData.url) {
+                await this.downloadImage(imageData.url, filePath);
+            } else {
+                return null;
+            }
+
+            return `/uploads/${filename}`;
+        } catch (err) {
+            this.logger.error('generateOutfitImage failed', err instanceof Error ? err.message : err);
+            return null;
+        }
+    }
+
+    private downloadImage(url: string, destPath: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            https.get(url, (res) => {
+                const chunks: Buffer[] = [];
+                res.on('data', (c: Buffer) => chunks.push(c));
+                res.on('end', () =>
+                    writeFile(destPath, Buffer.concat(chunks)).then(resolve).catch(reject),
+                );
+                res.on('error', reject);
+            }).on('error', reject);
+        });
     }
 
     private async toImageDataUrl(imagePath: string): Promise<string> {
